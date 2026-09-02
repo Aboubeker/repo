@@ -150,6 +150,23 @@ export function registerPatientRoutes(router) {
     return { ok: true };
   }, { permission: 'patient.write' });
 
+  /* --------------------------- Réactivation -------------------------- */
+  /*
+   * L'archivage est une mesure de rangement, pas une sanction : un patient
+   * revient parfois après des années. Sans ce point d'entrée, la seule issue
+   * serait de recréer une fiche, ce qui casserait l'historique de soins et
+   * produirait le doublon que la détection cherche justement à éviter.
+   */
+  router.post('/api/patients/:id/restore', async (ctx) => {
+    const p = await one(
+      `UPDATE patient SET status = 'ACTIVE', updated_at = now(), updated_by = $2
+        WHERE id = $1 AND deleted_at IS NULL RETURNING id, mrn`, [ctx.params.id, ctx.user.sub]);
+    if (!p) throw notFound('Patient introuvable.');
+    await writeAudit(ctx, { action: 'RESTORE', entity: 'patient', entityId: p.id,
+      summary: `Réactivation du patient ${p.mrn}` });
+    return { ok: true };
+  }, { permission: 'patient.write' });
+
   /* ---------------------- Historique médical ------------------------ */
   router.post('/api/patients/:id/history', async (ctx) => {
     const d = validate(ctx.body, {

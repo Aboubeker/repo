@@ -1,8 +1,18 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
-import { ToastProvider } from './lib.jsx';
+import { ToastProvider, bootTheme } from './lib.jsx';
 import './styles.css';
+
+/*
+ * Thème appliqué avant le premier rendu.
+ *
+ * L'appel est lancé sans être attendu : le style compilé s'affiche
+ * immédiatement et les couleurs de la clinique se substituent dès la réponse.
+ * Attendre le réseau pour peindre l'écran ferait clignoter une page blanche
+ * à chaque chargement, y compris quand le serveur ne répond pas.
+ */
+bootTheme();
 
 /*
  * Barrière d'erreur.

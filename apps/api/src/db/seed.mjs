@@ -193,8 +193,16 @@ try {
   }
 
   /* ----------------------------- Utilisateurs --------------------------- */
+  /*
+   * Le compte « admin » est le superutilisateur d'amorçage.
+   *
+   * Sans lui, une installation neuve n'aurait aucun compte capable
+   * d'attribuer ce rang — et le rang ne peut s'octroyer soi-même. La base
+   * refuse par ailleurs de retirer le dernier superutilisateur, ce qui
+   * garantit qu'il en existe toujours un.
+   */
   const users = [
-    ['admin', 'Administrateur Système', ['ADMIN'], null],
+    ['admin', 'Administrateur Système', ['ADMIN'], null, true],
     ['s.amrani', 'Samira AMRANI', ['RECEPTION'], null],
     ['l.brahimi', 'Lynda BRAHIMI', ['RECEPTION'], null],
     ['a.benali', 'Dr Amine BENALI', ['PRACTITIONER'], practitioners[0].id],
@@ -203,11 +211,13 @@ try {
     ['c.compta', 'Farid KHELIFI', ['BILLING'], null],
   ];
   const pwHash = hashPassword('Clinique2026!');
-  for (const [username, fullName, roles, practId] of users) {
+  for (const [username, fullName, roles, practId, isSuperuser] of users) {
     const u = await first(
-      `INSERT INTO user_account (username, full_name, password_hash, practitioner_id, email)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [username, fullName, pwHash, practId, `${username}@clinique.local`]);
+      `INSERT INTO user_account (username, full_name, password_hash, practitioner_id,
+                                 email, is_superuser)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [username, fullName, pwHash, practId, `${username}@clinique.local`,
+       isSuperuser === true]);
     for (const r of roles) {
       await q('INSERT INTO user_role (user_id, role_id) VALUES ($1,$2)', [u.id, roleIds[r]]);
     }

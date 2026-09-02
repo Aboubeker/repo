@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Spinner, Empty, Modal, Field, ErrorAlert, Stat, PageHead,
          HealthItem, ActionStrip, ConfirmDialog,
-         fmtDate, fmtDateTime, can, useToast } from '../lib.jsx';
+         fmtDate, fmtDateTime, can, useToast, applyTheme } from '../lib.jsx';
 
 const TABS = [
   ['overview', 'Vue d\'ensemble', 'admin.settings'],
   ['users', 'Utilisateurs', 'admin.users'],
+  ['roles', 'Rôles et permissions', 'admin.roles'],
+  ['theme', 'Apparence', 'admin.theme'],
   ['settings', 'Paramètres', 'admin.settings'],
   ['backups', 'Sauvegardes', 'admin.backup'],
   ['audit', 'Journal d\'audit', 'audit.read'],
@@ -26,7 +28,9 @@ export default function Admin({ user }) {
         ))}
       </div>
       {tab === 'overview' && <Overview go={setTab} />}
-      {tab === 'users'    && <Users />}
+      {tab === 'users'    && <Users user={user} />}
+      {tab === 'roles'    && <Roles />}
+      {tab === 'theme'    && <Appearance />}
       {tab === 'settings' && <Settings />}
       {tab === 'backups'  && <Backups />}
       {tab === 'audit'    && <Audit />}
@@ -36,15 +40,21 @@ export default function Admin({ user }) {
 }
 
 /* ----------------------------- Utilisateurs ------------------------------ */
-function Users() {
+function Users({ user }) {
   const [items, setItems] = useState(null);
   const [roles, setRoles] = useState([]);
   const [error, setError] = useState(null);
-  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState(null);       // { user } en modification, {} en création
+  const [deleting, setDeleting] = useState(null);
+  const [q, setQ] = useState('');
   const toast = useToast();
+  const iAmSuperuser = user?.isSuperuser === true;
 
   const load = () => api.users().then((d) => setItems(d.items)).catch(setError);
-  useEffect(() => { load(); api.roles().then((d) => setRoles(d.items)).catch(() => {}); }, []);
+  useEffect(function loadUsersAndRoles() {
+    load();
+    api.roles().then((d) => setRoles(d.items)).catch(() => {});
+  }, []);
 
   const setStatus = async (u, status, msg) => {
     try { await api.updateUser(u.id, { status }); toast.success(msg); load(); }
@@ -59,27 +69,59 @@ function Users() {
       load();
     } catch (e) { toast.error(e.message); }
   };
+  const toggleSuperuser = async (u) => {
+    try {
+      await api.setSuperuser(u.id, !u.is_superuser);
+      toast.success(u.is_superuser
+        ? `${u.username} n'est plus superutilisateur.`
+        : `${u.username} est désormais superutilisateur.`);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+  const remove = async () => {
+    try {
+      await api.deleteUser(deleting.id);
+      toast.success(`Compte ${deleting.username} supprimé.`);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
 
   if (error) return <ErrorAlert error={error} />;
   if (!items) return <Spinner />;
+
+  const needle = q.trim().toLowerCase();
+  const shown = needle
+    ? items.filter((u) => `${u.username} ${u.full_name} ${u.email || ''}`
+        .toLowerCase().includes(needle))
+    : items;
 
   return (
     <>
       <div className="card">
         <div className="card-head">
           <h3>Comptes utilisateurs</h3>
+          <div className="search-global" style={{ width: 260, marginLeft: 14 }}>
+            <span className="icon">🔍</span>
+            <input value={q} onChange={(e) => setQ(e.target.value)}
+                   placeholder="Identifiant, nom, courriel…" />
+          </div>
           <div className="spacer" />
-          <button className="btn primary sm" onClick={() => setCreating(true)}>
+          <span className="muted small">{shown.length} compte(s)</span>
+          <button className="btn primary sm" onClick={() => setForm({})}>
             + Créer un compte</button>
         </div>
         <div className="card-body tight">
+          {shown.length === 0 ? <Empty icon="👤" text="Aucun compte ne correspond." /> : (
           <table>
             <thead><tr><th>Identifiant</th><th>Nom</th><th>Rôles</th><th>Courriel</th>
-              <th>Dernière connexion</th><th>État</th><th></th></tr></thead>
+              <th>Dernière connexion</th><th>État</th><th className="num">Actions</th></tr></thead>
             <tbody>
-              {items.map((u) => (
+              {shown.map((u) => (
                 <tr key={u.id}>
-                  <td><strong>{u.username}</strong></td>
+                  <td><strong>{u.username}</strong>
+                    {u.is_superuser &&
+                      <span className="badge purple" style={{ marginLeft: 5 }}
+                            title="Détient toutes les permissions">Superuser</span>}</td>
                   <td>{u.full_name}</td>
                   <td>{(u.roles || []).map((r) => (
                     <span key={r} className="badge blue" style={{ marginRight: 4 }}>{r}</span>))}</td>
@@ -93,79 +135,114 @@ function Users() {
                     {u.must_change_password &&
                       <span className="badge orange" style={{ marginLeft: 4 }}>MDP à changer</span>}
                   </td>
-                  <td>
+                  <td className="num nowrap">
+                    <button className="btn sm" onClick={() => setForm({ user: u })}
+                            title="Nom, courriel et rôles">Modifier</button>
                     {u.status !== 'ACTIVE'
-                      ? <button className="btn sm"
+                      ? <button className="btn ghost sm"
                           onClick={() => setStatus(u, 'ACTIVE', 'Compte réactivé.')}>Réactiver</button>
                       : <button className="btn ghost sm"
                           onClick={() => setStatus(u, 'DISABLED', 'Compte désactivé.')}>Désactiver</button>}
                     <button className="btn ghost sm"
                             onClick={() => resetPassword(u)}>Réinitialiser</button>
+                    {/* Le rang de superutilisateur ne se délègue qu'entre pairs :
+                        un administrateur ordinaire ne doit pas pouvoir se
+                        l'octroyer et contourner ainsi toute la matrice RBAC. */}
+                    {iAmSuperuser && (
+                      <button className="btn ghost sm" onClick={() => toggleSuperuser(u)}
+                              title="Accorder ou retirer toutes les permissions">
+                        {u.is_superuser ? 'Retirer superuser' : 'Superuser'}</button>
+                    )}
+                    <button className="btn ghost sm danger" onClick={() => setDeleting(u)}
+                            title="Supprimer le compte">Supprimer</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          )}
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
-        <div className="card-head"><h3>Rôles et permissions</h3></div>
-        <div className="card-body tight">
-          <table>
-            <thead><tr><th>Rôle</th><th>Description</th><th>Permissions</th></tr></thead>
-            <tbody>
-              {roles.map((r) => (
-                <tr key={r.code}>
-                  <td><strong>{r.code}</strong></td>
-                  <td className="muted small">{r.label}</td>
-                  <td className="muted small">{(r.permissions || []).length} permission(s)
-                    <div style={{ marginTop: 4 }}>{(r.permissions || []).map((p) => (
-                      <span key={p} className="badge gray"
-                            style={{ marginRight: 3 }}>{p}</span>))}</div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {form && <UserForm target={form.user} roles={roles} onClose={() => setForm(null)}
+        onDone={() => { setForm(null); load(); }} />}
 
-      {creating && <CreateUser roles={roles} onClose={() => setCreating(false)}
-        onDone={() => { setCreating(false); load(); }} />}
+      {deleting && (
+        <ConfirmDialog title="Supprimer ce compte ?" danger confirmLabel="Supprimer le compte"
+          onConfirm={remove} onClose={() => setDeleting(null)}
+          message={`Le compte « ${deleting.username} » (${deleting.full_name}) sera supprimé et ses sessions immédiatement fermées.`}>
+          <p className="muted small">
+            Les rendez-vous, factures et écritures du journal d'audit créés par
+            cet utilisateur sont conservés : la traçabilité réglementaire reste
+            intacte. L'identifiant redevient disponible pour un nouveau compte.
+            Pour un départ temporaire, préférez « Désactiver ».
+          </p>
+        </ConfirmDialog>
+      )}
     </>
   );
 }
 
-function CreateUser({ roles, onClose, onDone }) {
-  const [f, setF] = useState({ username: '', fullName: '', email: '', password: '', roles: [] });
+/**
+ * Formulaire de compte, en création comme en modification.
+ *
+ * Le mot de passe n'apparaît qu'à la création : le modifier ensuite passe par
+ * « Réinitialiser », qui révoque les sessions ouvertes — une nuance de
+ * sécurité qu'un champ discret au milieu d'un formulaire ferait oublier.
+ */
+function UserForm({ target, roles, onClose, onDone }) {
+  const editing = Boolean(target);
+  const [f, setF] = useState({
+    username: target?.username || '',
+    fullName: target?.full_name || '',
+    email: target?.email || '',
+    password: '',
+    roles: target?.roles || [],
+  });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const set = (k) => (e) => setF((prev) => ({ ...prev, [k]: e.target.value }));
 
   const submit = async () => {
+    if (busy) return;
     setBusy(true); setError(null);
-    try { await api.createUser(f); toast.success('Compte créé.'); onDone(); }
-    catch (e) { setError(e); } finally { setBusy(false); }
+    try {
+      if (editing) {
+        await api.updateUser(target.id,
+          { fullName: f.fullName, email: f.email, roles: f.roles });
+        toast.success('Compte mis à jour.');
+      } else {
+        await api.createUser(f);
+        toast.success('Compte créé.');
+      }
+      onDone();
+    } catch (e) { setError(e); } finally { setBusy(false); }
   };
 
   return (
-    <Modal title="Créer un compte" onClose={onClose} footer={
+    <Modal title={editing ? `Modifier ${target.username}` : 'Créer un compte'}
+           onClose={onClose} footer={
       <>
         <button className="btn" onClick={onClose}>Annuler</button>
-        <button className="btn primary" disabled={busy} onClick={submit}>Créer</button>
+        <button className="btn primary" disabled={busy} onClick={submit}>
+          {editing ? 'Enregistrer' : 'Créer'}</button>
       </>
     }>
       <ErrorAlert error={error} />
-      <Field label="Identifiant" error={error?.details?.username}>
-        <input value={f.username} onChange={set('username')} autoFocus placeholder="p.nom" /></Field>
+      <Field label="Identifiant" error={error?.details?.username}
+             help={editing ? "L'identifiant de connexion n'est pas modifiable." : undefined}>
+        <input value={f.username} onChange={set('username')} disabled={editing}
+               autoFocus={!editing} placeholder="p.nom" /></Field>
       <Field label="Nom affiché" error={error?.details?.fullName}>
-        <input value={f.fullName} onChange={set('fullName')} /></Field>
+        <input value={f.fullName} onChange={set('fullName')} autoFocus={editing} /></Field>
       <Field label="Courriel interne"><input value={f.email} onChange={set('email')} /></Field>
-      <Field label="Mot de passe provisoire"
-             help="12 caractères minimum. L'utilisateur devra le changer à la première connexion.">
-        <input type="text" value={f.password} onChange={set('password')} /></Field>
-      <Field label="Rôles">
+      {!editing && (
+        <Field label="Mot de passe provisoire" error={error?.details?.password}
+               help="12 caractères minimum. L'utilisateur devra le changer à la première connexion.">
+          <input type="text" value={f.password} onChange={set('password')} /></Field>
+      )}
+      <Field label="Rôles" help="Les permissions accordées sont l'union de celles des rôles cochés.">
         <div style={{ display: 'grid', gap: 5 }}>
           {roles.map((r) => (
             <label key={r.code} style={{ display: 'flex', gap: 7, alignItems: 'center',
@@ -178,7 +255,455 @@ function CreateUser({ roles, onClose, onDone }) {
           ))}
         </div>
       </Field>
+      {editing && target.is_superuser && (
+        <div className="alert warning" style={{ marginTop: 10 }}>
+          <span>⚠</span>
+          <div>Ce compte est superutilisateur : il conserve toutes les
+            permissions quels que soient les rôles cochés ci-dessus.</div>
+        </div>
+      )}
     </Modal>
+  );
+}
+
+/* -------------------------- Rôles et permissions ------------------------- */
+
+/**
+ * Regroupe les permissions par préfixe (« patient.read » → famille « patient »).
+ *
+ * La matrice compte plusieurs dizaines d'entrées ; présentée à plat, elle est
+ * illisible et l'on coche de travers. Le regroupement suit le nommage déjà
+ * porté par les codes, il n'y a donc aucune table de correspondance à tenir
+ * à jour quand une permission apparaît.
+ */
+function groupPermissions(permissions) {
+  const groups = new Map();
+  for (const p of permissions) {
+    const family = (p.code || p).split('.')[0];
+    if (!groups.has(family)) groups.set(family, []);
+    groups.get(family).push(p);
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr'));
+}
+
+const FAMILY_LABELS = {
+  patient: 'Patients', appointment: 'Rendez-vous', practitioner: 'Praticiens',
+  encounter: 'Consultations', resource: 'Ressources', billing: 'Facturation',
+  invoice: 'Factures', payment: 'Encaissements', report: 'Rapports',
+  audit: 'Audit', admin: 'Administration', user: 'Comptes',
+};
+
+function Roles() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const toast = useToast();
+
+  const load = () => api.roleCatalog().then(setData).catch(setError);
+  useEffect(function loadCatalog() { load(); }, []);
+
+  const remove = async () => {
+    try {
+      await api.deleteRole(deleting.id);
+      toast.success(`Rôle ${deleting.code} supprimé.`);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  if (error) return <ErrorAlert error={error} />;
+  if (!data) return <Spinner />;
+
+  return (
+    <>
+      <div className="card">
+        <div className="card-head">
+          <h3>Rôles</h3>
+          <div className="spacer" />
+          <span className="muted small">
+            {data.roles.length} rôle(s) · {data.permissions.length} permissions</span>
+          <button className="btn primary sm" onClick={() => setForm({})}>+ Créer un rôle</button>
+        </div>
+        <div className="card-body tight">
+          <table>
+            <thead><tr><th>Code</th><th>Intitulé</th><th className="num">Comptes</th>
+              <th>Permissions</th><th className="num">Actions</th></tr></thead>
+            <tbody>
+              {data.roles.map((r) => (
+                <tr key={r.id}>
+                  <td><strong>{r.code}</strong>
+                    {r.is_system &&
+                      <span className="badge gray" style={{ marginLeft: 5 }}
+                            title="Rôle livré avec le logiciel">Système</span>}</td>
+                  <td>{r.label}
+                    {r.description && <div className="muted small">{r.description}</div>}</td>
+                  <td className="num">{r.user_count}</td>
+                  <td className="muted small">{(r.permissions || []).length} permission(s)</td>
+                  <td className="num nowrap">
+                    <button className="btn sm" onClick={() => setForm({ role: r })}>
+                      {r.is_system ? 'Ajuster' : 'Modifier'}</button>
+                    {!r.is_system && (
+                      <button className="btn ghost sm danger" onClick={() => setDeleting(r)}>
+                        Supprimer</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="alert info" style={{ marginTop: 14 }}>
+        <span>ℹ</span>
+        <div>Les rôles système ne peuvent être ni renommés ni supprimés, car ils
+          sont cités dans les procédures de la clinique ; leurs permissions
+          restent en revanche ajustables. Un rôle attribué à au moins un compte
+          ne peut pas être supprimé : retirez-le d'abord des comptes concernés.
+          Enfin, la dernière permission « admin.users » ou « admin.roles » du
+          système ne peut pas être retirée — sans elle plus personne ne pourrait
+          administrer l'application.</div>
+      </div>
+
+      {form && <RoleForm role={form.role} permissions={data.permissions}
+        onClose={() => setForm(null)} onDone={() => { setForm(null); load(); }} />}
+
+      {deleting && (
+        <ConfirmDialog title="Supprimer ce rôle ?" danger confirmLabel="Supprimer"
+          onConfirm={remove} onClose={() => setDeleting(null)}
+          message={`Le rôle « ${deleting.label} » (${deleting.code}) sera définitivement supprimé.`} />
+      )}
+    </>
+  );
+}
+
+function RoleForm({ role, permissions, onClose, onDone }) {
+  const editing = Boolean(role);
+  const [f, setF] = useState({
+    code: role?.code || '', label: role?.label || '',
+    description: role?.description || '',
+    permissions: role?.permissions || [],
+  });
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const locked = editing && role.is_system;
+  const set = (k) => (e) => setF((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const toggle = (code) => setF((prev) => ({
+    ...prev,
+    permissions: prev.permissions.includes(code)
+      ? prev.permissions.filter((x) => x !== code)
+      : [...prev.permissions, code],
+  }));
+
+  const toggleFamily = (codes, all) => setF((prev) => ({
+    ...prev,
+    permissions: all
+      ? prev.permissions.filter((x) => !codes.includes(x))
+      : [...new Set([...prev.permissions, ...codes])],
+  }));
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      if (editing) {
+        // Un rôle système refuse toute retouche de son libellé : n'envoyer
+        // que les permissions évite un rejet sur un champ inchangé.
+        await api.updateRole(role.id, locked
+          ? { permissions: f.permissions }
+          : { label: f.label, description: f.description, permissions: f.permissions });
+        toast.success('Rôle mis à jour.');
+      } else {
+        await api.createRole(f);
+        toast.success('Rôle créé.');
+      }
+      onDone();
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title={editing ? `Rôle ${role.code}` : 'Créer un rôle'} onClose={onClose} wide footer={
+      <>
+        <button className="btn" onClick={onClose}>Annuler</button>
+        <button className="btn primary" disabled={busy} onClick={submit}>
+          {editing ? 'Enregistrer' : 'Créer le rôle'}</button>
+      </>
+    }>
+      <ErrorAlert error={error} />
+      {!editing && (
+        <div className="row">
+          <Field label="Code *" error={error?.details?.code}
+                 help="Majuscules, chiffres et « _ ». Exemple : INFIRMIER.">
+            <input value={f.code} autoFocus
+                   onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} /></Field>
+          <Field label="Intitulé *" error={error?.details?.label}>
+            <input value={f.label} onChange={set('label')} /></Field>
+        </div>
+      )}
+      {editing && !locked && (
+        <div className="row">
+          <Field label="Intitulé *" error={error?.details?.label}>
+            <input value={f.label} onChange={set('label')} autoFocus /></Field>
+        </div>
+      )}
+      {!locked && (
+        <Field label="Description">
+          <input value={f.description} onChange={set('description')}
+                 placeholder="À quoi sert ce rôle dans la clinique ?" /></Field>
+      )}
+      {locked && (
+        <div className="alert info">
+          <span>ℹ</span>
+          <div>Rôle système : l'intitulé et la description sont figés,
+            les permissions restent modifiables.</div>
+        </div>
+      )}
+
+      <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>
+        Permissions <span className="muted">({f.permissions.length} sélectionnée(s))</span>
+      </h4>
+      {groupPermissions(permissions).map(([family, perms]) => {
+        const codes = perms.map((p) => p.code);
+        const all = codes.every((c) => f.permissions.includes(c));
+        return (
+          <div key={family} style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <strong style={{ fontSize: 12 }}>{FAMILY_LABELS[family] || family}</strong>
+              <button type="button" className="btn ghost sm"
+                      onClick={() => toggleFamily(codes, all)}>
+                {all ? 'Tout décocher' : 'Tout cocher'}</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
+              {perms.map((p) => (
+                <label key={p.code} style={{ display: 'flex', gap: 7, alignItems: 'flex-start',
+                                             fontSize: 12.5 }}>
+                  <input type="checkbox" checked={f.permissions.includes(p.code)}
+                         onChange={() => toggle(p.code)} />
+                  <span><code>{p.code}</code>
+                    {p.label && <span className="muted"> — {p.label}</span>}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </Modal>
+  );
+}
+
+/* ------------------------------- Apparence ------------------------------- */
+
+const THEME_PRESETS = [
+  { key: 'teal',   label: 'Sarcelle (par défaut)', primary: '#0f766e', accent: '#5eead4', sidebar: '#14201e' },
+  { key: 'indigo', label: 'Indigo',                primary: '#4338ca', accent: '#a5b4fc', sidebar: '#1a1b2e' },
+  { key: 'ocean',  label: 'Bleu océan',            primary: '#0369a1', accent: '#7dd3fc', sidebar: '#0f1e2b' },
+  { key: 'amber',  label: 'Ambre',                 primary: '#b45309', accent: '#fcd34d', sidebar: '#241a0f' },
+  { key: 'plum',   label: 'Prune',                 primary: '#86198f', accent: '#f0abfc', sidebar: '#231325' },
+  { key: 'slate',  label: 'Ardoise',               primary: '#334155', accent: '#94a3b8', sidebar: '#161a20' },
+];
+
+function Appearance() {
+  const [f, setF] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const toast = useToast();
+
+  const apply = (t) => setF({
+    preset: t.preset || 'teal',
+    primaryColor: t.primary_color, accentColor: t.accent_color,
+    sidebarColor: t.sidebar_color, density: t.density, radius: t.radius,
+    fontScale: Number(t.font_scale), logoDataUri: t.logo_data_uri || '',
+    loginMessage: t.login_message || '',
+  });
+
+  useEffect(function loadTheme() {
+    api.theme().then(apply).catch(setError);
+  }, []);
+
+  const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const saved = await api.updateTheme(f);
+      apply(saved);
+      applyTheme(saved);
+      toast.success('Apparence enregistrée pour tous les postes.');
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  const reset = async () => {
+    try {
+      const saved = await api.resetTheme();
+      apply(saved); applyTheme(saved);
+      toast.success('Apparence réinitialisée.');
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const pickLogo = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // 256 Ko : au-delà, le serveur refuse. Le logo voyage en data-URI dans la
+    // configuration, ce qui évite d'exposer un répertoire de fichiers envoyés.
+    if (file.size > 256 * 1024) {
+      toast.error('Logo trop volumineux : 256 Ko maximum.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => set('logoDataUri', String(reader.result));
+    reader.readAsDataURL(file);
+  };
+
+  if (error && !f) return <ErrorAlert error={error} />;
+  if (!f) return <Spinner />;
+
+  return (
+    <>
+      <div className="card">
+        <div className="card-head">
+          <h3>Apparence de l'application</h3>
+          <div className="spacer" />
+          <button className="btn ghost sm" onClick={() => setResetting(true)}>
+            Réinitialiser</button>
+          <button className="btn primary sm" disabled={busy} onClick={save}>
+            Enregistrer</button>
+        </div>
+        <div className="card-body">
+          <ErrorAlert error={error} />
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Ces réglages sont enregistrés sur le serveur et s'appliquent à tous
+            les postes de la clinique dès leur prochain chargement.
+          </p>
+
+          <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Palette</h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+            {THEME_PRESETS.map((p) => (
+              <button key={p.key} type="button"
+                      className={`btn ${f.preset === p.key ? 'primary' : ''} sm`}
+                      onClick={() => setF({ ...f, preset: p.key, primaryColor: p.primary,
+                                            accentColor: p.accent, sidebarColor: p.sidebar })}>
+                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3,
+                               background: p.primary, marginRight: 6,
+                               border: '1px solid rgba(0,0,0,.2)' }} />
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="row">
+            <Field label="Couleur principale" error={error?.details?.primaryColor}
+                   help="Boutons, liens et éléments actifs.">
+              <ColorInput value={f.primaryColor}
+                          onChange={(v) => setF({ ...f, primaryColor: v, preset: 'custom' })} /></Field>
+            <Field label="Couleur d'accent" error={error?.details?.accentColor}
+                   help="Surlignages et badges.">
+              <ColorInput value={f.accentColor}
+                          onChange={(v) => setF({ ...f, accentColor: v, preset: 'custom' })} /></Field>
+            <Field label="Fond du menu latéral" error={error?.details?.sidebarColor}>
+              <ColorInput value={f.sidebarColor}
+                          onChange={(v) => setF({ ...f, sidebarColor: v, preset: 'custom' })} /></Field>
+          </div>
+
+          <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Mise en page</h4>
+          <div className="row">
+            <Field label="Densité"
+                   help="« Compacte » affiche davantage de lignes par écran.">
+              <select value={f.density} onChange={(e) => set('density', e.target.value)}>
+                <option value="comfortable">Confortable</option>
+                <option value="compact">Compacte</option>
+              </select></Field>
+            <Field label="Arrondi des angles">
+              <select value={f.radius} onChange={(e) => set('radius', e.target.value)}>
+                <option value="square">Droits</option>
+                <option value="medium">Moyens</option>
+                <option value="round">Arrondis</option>
+              </select></Field>
+            <Field label={`Taille du texte — ${Math.round(f.fontScale * 100)} %`}
+                   help="Utile sur les postes d'accueil équipés de grands écrans.">
+              <input type="range" min="0.9" max="1.3" step="0.05" value={f.fontScale}
+                     onChange={(e) => set('fontScale', Number(e.target.value))} /></Field>
+          </div>
+
+          <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Identité de la clinique</h4>
+          <div className="row">
+            <Field label="Logo" help="PNG ou JPEG, 256 Ko maximum. Affiché dans le menu et sur l'écran de connexion.">
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pickLogo} />
+              {f.logoDataUri && (
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <img src={f.logoDataUri} alt="Logo de la clinique"
+                       style={{ height: 40, borderRadius: 6, background: '#fff', padding: 3 }} />
+                  <button type="button" className="btn ghost sm"
+                          onClick={() => set('logoDataUri', '')}>Retirer</button>
+                </div>
+              )}
+            </Field>
+            <Field label="Message sur l'écran de connexion" error={error?.details?.loginMessage}
+                   help="Par exemple les horaires d'ouverture ou un numéro d'astreinte.">
+              <input value={f.loginMessage} onChange={(e) => set('loginMessage', e.target.value)}
+                     placeholder="Accueil ouvert du dimanche au jeudi, 8 h – 17 h" /></Field>
+          </div>
+
+          <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Aperçu</h4>
+          <ThemePreview theme={f} />
+        </div>
+      </div>
+
+      {resetting && (
+        <ConfirmDialog title="Réinitialiser l'apparence ?" confirmLabel="Réinitialiser"
+          onConfirm={reset} onClose={() => setResetting(false)}
+          message="Couleurs, densité, logo et message de connexion reviendront aux valeurs livrées avec le logiciel." />
+      )}
+    </>
+  );
+}
+
+/** Sélecteur de couleur doublé d'un champ texte, pour coller une valeur exacte. */
+function ColorInput({ value, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
+             style={{ width: 42, height: 32, padding: 2, cursor: 'pointer' }} />
+      <input value={value} onChange={(e) => onChange(e.target.value)}
+             style={{ fontFamily: 'monospace' }} placeholder="#0f766e" />
+    </div>
+  );
+}
+
+/** Aperçu statique : juger des couleurs sans les imposer à toute la clinique. */
+function ThemePreview({ theme }) {
+  const radius = theme.radius === 'square' ? 0 : theme.radius === 'round' ? 14 : 8;
+  return (
+    <div style={{ display: 'flex', borderRadius: radius, overflow: 'hidden',
+                  border: '1px solid var(--border)', maxWidth: 520,
+                  fontSize: `${13 * theme.fontScale}px` }}>
+      <div style={{ background: theme.sidebarColor, color: '#fff', padding: '14px 12px',
+                    width: 130, display: 'grid', gap: 8, alignContent: 'start' }}>
+        {theme.logoDataUri
+          ? <img src={theme.logoDataUri} alt="" style={{ maxWidth: '100%', maxHeight: 28 }} />
+          : <strong style={{ fontSize: '1em' }}>CliniRDV</strong>}
+        <span style={{ opacity: .75 }}>Agenda</span>
+        <span style={{ background: theme.primaryColor, borderRadius: radius / 2,
+                       padding: '3px 7px' }}>Patients</span>
+        <span style={{ opacity: .75 }}>Facturation</span>
+      </div>
+      <div style={{ padding: 14, flex: 1, background: '#fff', display: 'grid', gap: 9 }}>
+        <strong style={{ fontSize: '1.1em' }}>Fiche patient</strong>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <span style={{ background: theme.primaryColor, color: '#fff', borderRadius: radius / 2,
+                         padding: `${theme.density === 'compact' ? 4 : 7}px 12px` }}>
+            Enregistrer</span>
+          <span style={{ border: '1px solid var(--border)', borderRadius: radius / 2,
+                         padding: `${theme.density === 'compact' ? 4 : 7}px 12px` }}>
+            Annuler</span>
+        </div>
+        <span style={{ background: theme.accentColor, color: '#0b1a17', borderRadius: 20,
+                       padding: '2px 10px', justifySelf: 'start' }}>Confirmé</span>
+      </div>
+    </div>
   );
 }
 

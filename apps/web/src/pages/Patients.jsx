@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Spinner, Empty, Modal, Field, ErrorAlert, fmtName, fmtMoney,
+import { Spinner, Empty, Modal, Field, ErrorAlert, ConfirmDialog, fmtName, fmtMoney,
          age, can, useToast } from '../lib.jsx';
 
 export default function Patients({ user, go }) {
@@ -12,16 +12,37 @@ export default function Patients({ user, go }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [archiving, setArchiving] = useState(null);
+  const [status, setStatus] = useState('ACTIVE');
+  const toast = useToast();
+  const writable = can(user, 'patient.write');
 
-  const load = (query) => {
+  const load = (query, st) => {
     setData(null);
-    api.patients({ q: query, limit: 100 }).then(setData).catch(setError);
+    api.patients({ q: query, status: st, limit: 100 }).then(setData).catch(setError);
   };
 
-  useEffect(() => {
-    const t = setTimeout(() => load(q), q ? 250 : 0);
+  useEffect(function reloadOnSearch() {
+    const t = setTimeout(() => load(q, status), q ? 250 : 0);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, status]);
+
+  const archive = async () => {
+    try {
+      await api.archivePatient(archiving.id);
+      toast.success(`Fiche ${archiving.mrn} archivée.`);
+      load(q, status);
+    } catch (err) { setError(err); }
+  };
+
+  const restore = async (p) => {
+    try {
+      await api.restorePatient(p.id);
+      toast.success(`Fiche ${p.mrn} réactivée.`);
+      load(q, status);
+    } catch (err) { setError(err); }
+  };
 
   return (
     <>
@@ -32,6 +53,11 @@ export default function Patients({ user, go }) {
             <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus
                    placeholder="Nom, prénom, identifiant, téléphone, date de naissance…" />
           </div>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}
+                  style={{ maxWidth: 180 }}>
+            <option value="ACTIVE">Fiches actives</option>
+            <option value="ARCHIVED">Fiches archivées</option>
+          </select>
           <div className="spacer" />
           {data && <span className="muted small">{data.total} patient(s)</span>}
           {can(user, 'patient.write') && (
@@ -51,7 +77,7 @@ export default function Patients({ user, go }) {
                 <tr>
                   <th>Identifiant</th><th>Nom, prénom</th><th>Naissance</th>
                   <th>Téléphone</th><th>Dernière visite</th><th>Prochain RDV</th>
-                  <th className="num">Solde</th><th></th>
+                  <th className="num">Solde</th><th></th><th className="num">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -81,6 +107,24 @@ export default function Patients({ user, go }) {
                         <span className="badge orange" title="Absences répétées">
                           {p.no_show_count} abs.</span>}
                     </td>
+                    {/* onClick={stop} : sans cela, un clic sur « Modifier »
+                        déclencherait aussi la navigation portée par la ligne. */}
+                    <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
+                      {writable && status === 'ACTIVE' && (
+                        <>
+                          <button className="btn sm" onClick={() => setEditing(p)}
+                                  title="Modifier l'identité et les coordonnées">Modifier</button>
+                          {' '}
+                          <button className="btn sm danger" onClick={() => setArchiving(p)}
+                                  title="Retirer la fiche des listes actives">Archiver</button>
+                        </>
+                      )}
+                      {writable && status === 'ARCHIVED' && (
+                        <button className="btn sm" onClick={() => restore(p)}
+                                title="Remettre la fiche parmi les patients actifs">
+                          Réactiver</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -89,82 +133,138 @@ export default function Patients({ user, go }) {
         </div>
       </div>
 
-      {creating && <CreatePatient onClose={() => setCreating(false)}
-        onCreated={(p) => { setCreating(false); go('patient', p.id); }} />}
+      {creating && <PatientForm onClose={() => setCreating(false)}
+        onSaved={(p) => { setCreating(false); go('patient', p.id); }} />}
+
+      {editing && <PatientForm patient={editing} onClose={() => setEditing(null)}
+        onSaved={() => { setEditing(null); load(q, status); }} />}
+
+      {archiving && (
+        <ConfirmDialog
+          title="Archiver cette fiche patient ?"
+          danger confirmLabel="Archiver la fiche"
+          onConfirm={archive} onClose={() => setArchiving(null)}
+          message={`La fiche de ${fmtName(archiving.last_name, archiving.first_name)} (${archiving.mrn}) quittera les listes actives.`}>
+          <p className="muted small">
+            Rien n'est effacé : l'historique de soins, les rendez-vous passés et
+            les factures restent consultables, et la fiche peut être réactivée à
+            tout moment depuis le filtre « Fiches archivées ». L'archivage est
+            refusé s'il reste des rendez-vous à venir.
+          </p>
+        </ConfirmDialog>
+      )}
     </>
   );
 }
 
-function CreatePatient({ onClose, onCreated }) {
+/**
+ * Formulaire de fiche patient, en création comme en modification.
+ *
+ * Un seul composant pour les deux usages : les champs, les règles de saisie et
+ * les messages d'erreur sont par construction identiques, alors que deux
+ * formulaires jumeaux finiraient par diverger au fil des évolutions.
+ */
+function PatientForm({ patient, onClose, onSaved }) {
+  const editing = Boolean(patient);
   const [f, setF] = useState({
     lastName: '', firstName: '', birthDate: '', sex: 'U', phoneMobile: '',
     email: '', addressLine1: '', postalCode: '', city: '', bloodType: '',
   });
+  // En modification, la ligne de tableau ne porte qu'un extrait des colonnes :
+  // on recharge la fiche complète pour ne pas réécrire l'adresse avec du vide.
+  const [loading, setLoading] = useState(editing);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const set = (k) => (e) => setF((prev) => ({ ...prev, [k]: e.target.value }));
+
+  useEffect(function loadFullRecord() {
+    if (!editing) return undefined;
+    let cancelled = false;
+    api.patient(patient.id).then((d) => {
+      if (cancelled) return;
+      const p = d.patient;
+      setF({
+        lastName: p.last_name || '', firstName: p.first_name || '',
+        birthDate: (p.birth_date || '').slice(0, 10), sex: p.sex || 'U',
+        phoneMobile: p.phone_mobile || '', email: p.email || '',
+        addressLine1: p.address_line1 || '', postalCode: p.postal_code || '',
+        city: p.city || '', bloodType: p.blood_type || '',
+      });
+      setLoading(false);
+    }).catch((err) => { if (!cancelled) { setError(err); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [editing, patient && patient.id]);
 
   const submit = async (e) => {
-    e.preventDefault(); setBusy(true); setError(null);
+    e.preventDefault();
+    if (busy || loading) return;
+    setBusy(true); setError(null);
     try {
-      const p = await api.createPatient(f);
-      toast.success(`Patient ${p.mrn} créé.`);
-      onCreated(p);
+      const saved = editing
+        ? await api.updatePatient(patient.id, f)
+        : await api.createPatient(f);
+      toast.success(editing ? `Fiche ${saved.mrn} mise à jour.` : `Patient ${saved.mrn} créé.`);
+      onSaved(saved);
     } catch (err) { setError(err); } finally { setBusy(false); }
   };
 
   return (
-    <Modal title="Nouveau patient" onClose={onClose} wide footer={
+    <Modal title={editing ? `Modifier la fiche ${patient.mrn}` : 'Nouveau patient'}
+           onClose={onClose} wide footer={
       <>
         <button className="btn" onClick={onClose}>Annuler</button>
-        <button className="btn primary" disabled={busy} onClick={submit}>Créer la fiche</button>
+        <button className="btn primary" disabled={busy || loading} onClick={submit}>
+          {editing ? 'Enregistrer' : 'Créer la fiche'}
+        </button>
       </>
     }>
-      <form onSubmit={submit}>
-        <ErrorAlert error={error} />
-        {error?.code === 'DUPLICATE_PATIENT' && (
-          <div className="alert warning">
-            <span>⚠</span>
-            <div>Un patient identique existe déjà ({error.details?.mrn}).
-              Vérifiez avant de créer un doublon.</div>
+      {loading ? <Spinner /> : (
+        <form onSubmit={submit}>
+          <ErrorAlert error={error} />
+          {error?.code === 'DUPLICATE_PATIENT' && (
+            <div className="alert warning">
+              <span>⚠</span>
+              <div>Un patient identique existe déjà ({error.details?.mrn}).
+                Vérifiez avant de créer un doublon.</div>
+            </div>
+          )}
+          <h4 style={{ fontSize: 13, marginBottom: 10 }}>Identité</h4>
+          <div className="row">
+            <Field label="Nom *" error={error?.details?.lastName}>
+              <input value={f.lastName} onChange={set('lastName')} required autoFocus /></Field>
+            <Field label="Prénom *" error={error?.details?.firstName}>
+              <input value={f.firstName} onChange={set('firstName')} required /></Field>
           </div>
-        )}
-        <h4 style={{ fontSize: 13, marginBottom: 10 }}>Identité</h4>
-        <div className="row">
-          <Field label="Nom *" error={error?.details?.lastName}>
-            <input value={f.lastName} onChange={set('lastName')} required autoFocus /></Field>
-          <Field label="Prénom *" error={error?.details?.firstName}>
-            <input value={f.firstName} onChange={set('firstName')} required /></Field>
-        </div>
-        <div className="row">
-          <Field label="Date de naissance *" error={error?.details?.birthDate}>
-            <input type="date" value={f.birthDate} onChange={set('birthDate')} required /></Field>
-          <Field label="Sexe">
-            <select value={f.sex} onChange={set('sex')}>
-              <option value="U">Non précisé</option><option value="F">Féminin</option>
-              <option value="M">Masculin</option></select></Field>
-          <Field label="Groupe sanguin">
-            <select value={f.bloodType} onChange={set('bloodType')}>
-              <option value="">—</option>
-              {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map((g) =>
-                <option key={g}>{g}</option>)}</select></Field>
-        </div>
+          <div className="row">
+            <Field label="Date de naissance *" error={error?.details?.birthDate}>
+              <input type="date" value={f.birthDate} onChange={set('birthDate')} required /></Field>
+            <Field label="Sexe">
+              <select value={f.sex} onChange={set('sex')}>
+                <option value="U">Non précisé</option><option value="F">Féminin</option>
+                <option value="M">Masculin</option></select></Field>
+            <Field label="Groupe sanguin">
+              <select value={f.bloodType} onChange={set('bloodType')}>
+                <option value="">—</option>
+                {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map((g) =>
+                  <option key={g}>{g}</option>)}</select></Field>
+          </div>
 
-        <h4 style={{ fontSize: 13, margin: '14px 0 10px' }}>Coordonnées</h4>
-        <div className="row">
-          <Field label="Téléphone mobile" error={error?.details?.phoneMobile}>
-            <input value={f.phoneMobile} onChange={set('phoneMobile')}
-                   placeholder="06 12 34 56 78" /></Field>
-          <Field label="Adresse e-mail" error={error?.details?.email}>
-            <input type="email" value={f.email} onChange={set('email')} /></Field>
-        </div>
-        <Field label="Adresse"><input value={f.addressLine1} onChange={set('addressLine1')} /></Field>
-        <div className="row">
-          <Field label="Code postal"><input value={f.postalCode} onChange={set('postalCode')} /></Field>
-          <Field label="Ville"><input value={f.city} onChange={set('city')} /></Field>
-        </div>
-      </form>
+          <h4 style={{ fontSize: 13, margin: '14px 0 10px' }}>Coordonnées</h4>
+          <div className="row">
+            <Field label="Téléphone mobile" error={error?.details?.phoneMobile}>
+              <input value={f.phoneMobile} onChange={set('phoneMobile')}
+                     placeholder="0551 23 45 67" /></Field>
+            <Field label="Adresse e-mail" error={error?.details?.email}>
+              <input type="email" value={f.email} onChange={set('email')} /></Field>
+          </div>
+          <Field label="Adresse"><input value={f.addressLine1} onChange={set('addressLine1')} /></Field>
+          <div className="row">
+            <Field label="Code postal"><input value={f.postalCode} onChange={set('postalCode')} /></Field>
+            <Field label="Ville"><input value={f.city} onChange={set('city')} /></Field>
+          </div>
+        </form>
+      )}
     </Modal>
   );
 }

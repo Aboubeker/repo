@@ -642,3 +642,165 @@ describe('Intégrité et exploitation', () => {
     assert.equal(r.status, 400);
   });
 });
+
+/* ======================================================================
+   Gouvernance : rôles, superutilisateur, apparence
+   ====================================================================== */
+describe('Gouvernance', () => {
+  const cleanup = async () => {
+    await query(`DELETE FROM role_permission WHERE role_id IN
+                   (SELECT id FROM role WHERE code LIKE 'TESTROLE%')`);
+    await query(`DELETE FROM user_role WHERE role_id IN
+                   (SELECT id FROM role WHERE code LIKE 'TESTROLE%')`);
+    await query(`DELETE FROM role WHERE code LIKE 'TESTROLE%'`);
+    await query(`DELETE FROM user_role WHERE user_id IN
+                   (SELECT id FROM user_account WHERE username LIKE 'testuser.%')`);
+    await query(`DELETE FROM user_account WHERE username LIKE 'testuser.%'`);
+  };
+  before(cleanup);
+  after(cleanup);
+
+  test('le catalogue expose les permissions et le décompte des comptes', async () => {
+    const d = await (await api('/api/admin/roles/catalog')).json();
+    assert.ok(d.permissions.length >= 20);
+    const admin = d.roles.find((r) => r.code === 'ADMIN');
+    assert.equal(admin.is_system, true);
+    assert.ok(admin.permissions.includes('admin.users'));
+    assert.ok(typeof admin.user_count === 'number');
+  });
+
+  test('un rôle métier se crée, se modifie et se supprime', async () => {
+    const created = await (await api('/api/admin/roles', { method: 'POST', body: {
+      code: 'TESTROLE_A', label: 'Rôle de test',
+      permissions: ['patient.read', 'appointment.read'] } })).json();
+    assert.equal(created.code, 'TESTROLE_A');
+    assert.equal(created.is_system, false);
+
+    const patched = await (await api(`/api/admin/roles/${created.id}`, { method: 'PATCH',
+      body: { label: 'Rôle ajusté', permissions: ['patient.read'] } })).json();
+    assert.equal(patched.label, 'Rôle ajusté');
+    assert.deepEqual(patched.permissions, ['patient.read']);
+
+    assert.equal((await api(`/api/admin/roles/${created.id}`, { method: 'DELETE' })).status, 200);
+  });
+
+  test('le code d\'un rôle est normalisé et unique', async () => {
+    assert.equal((await api('/api/admin/roles', { method: 'POST',
+      body: { code: 'minuscules', label: 'X' } })).status, 400);
+    await api('/api/admin/roles', { method: 'POST',
+      body: { code: 'TESTROLE_B', label: 'B' } });
+    const dup = await api('/api/admin/roles', { method: 'POST',
+      body: { code: 'TESTROLE_B', label: 'Autre' } });
+    assert.equal(dup.status, 422);
+    assert.equal((await dup.json()).error.code, 'ROLE_EXISTS');
+  });
+
+  test('un rôle système garde son intitulé mais accepte un ajustement de permissions', async () => {
+    const cat = await (await api('/api/admin/roles/catalog')).json();
+    const readonly = cat.roles.find((r) => r.code === 'READONLY');
+
+    const renamed = await api(`/api/admin/roles/${readonly.id}`, { method: 'PATCH',
+      body: { label: 'Renommé' } });
+    assert.equal(renamed.status, 422);
+    assert.equal((await renamed.json()).error.code, 'SYSTEM_ROLE');
+
+    const perms = [...readonly.permissions];
+    const ok = await api(`/api/admin/roles/${readonly.id}`, { method: 'PATCH',
+      body: { permissions: perms } });
+    assert.equal(ok.status, 200, 'les permissions d\'un rôle système restent modifiables');
+  });
+
+  test('la dernière permission d\'administration ne peut pas être retirée', async () => {
+    const cat = await (await api('/api/admin/roles/catalog')).json();
+    const admin = cat.roles.find((r) => r.code === 'ADMIN');
+    const r = await api(`/api/admin/roles/${admin.id}`, { method: 'PATCH',
+      body: { permissions: ['patient.read'] } });
+    assert.equal(r.status, 422);
+    assert.equal((await r.json()).error.code, 'LAST_ADMIN_PERMISSION');
+  });
+
+  test('un rôle attribué à un compte ne peut pas être supprimé', async () => {
+    const role = await (await api('/api/admin/roles', { method: 'POST',
+      body: { code: 'TESTROLE_C', label: 'C', permissions: ['patient.read'] } })).json();
+    await api('/api/admin/users', { method: 'POST', body: {
+      username: 'testuser.porteur', fullName: 'Porteur du rôle',
+      password: 'Clinique2026!', roles: ['TESTROLE_C'] } });
+
+    const r = await api(`/api/admin/roles/${role.id}`, { method: 'DELETE' });
+    assert.equal(r.status, 422);
+    assert.equal((await r.json()).error.code, 'ROLE_IN_USE');
+  });
+
+  test('un compte se supprime sans détruire sa trace, et libère son identifiant', async () => {
+    const u = await (await api('/api/admin/users', { method: 'POST', body: {
+      username: 'testuser.jetable', fullName: 'Compte jetable',
+      password: 'Clinique2026!', roles: ['READONLY'] } })).json();
+
+    assert.equal((await api(`/api/admin/users/${u.id}`, { method: 'DELETE' })).status, 200);
+    const list = await (await api('/api/admin/users')).json();
+    assert.ok(!list.items.some((x) => x.username === 'testuser.jetable'));
+
+    // L'identifiant redevient disponible : l'unicité ne porte que sur les vivants.
+    const again = await api('/api/admin/users', { method: 'POST', body: {
+      username: 'testuser.jetable', fullName: 'Reprise',
+      password: 'Clinique2026!', roles: ['READONLY'] } });
+    assert.equal(again.status, 201);
+  });
+
+  test('un administrateur ne peut pas supprimer son propre compte', async () => {
+    const list = await (await api('/api/admin/users')).json();
+    const me = list.items.find((x) => x.username === 'admin');
+    const r = await api(`/api/admin/users/${me.id}`, { method: 'DELETE' });
+    assert.equal(r.status, 422);
+    assert.equal((await r.json()).error.code, 'SELF_LOCKOUT');
+  });
+
+  test('le dernier superutilisateur ne peut être ni rétrogradé ni désactivé', async () => {
+    const list = await (await api('/api/admin/users')).json();
+    const su = list.items.find((x) => x.username === 'admin');
+    assert.equal(su.is_superuser, true);
+
+    const demote = await api(`/api/admin/users/${su.id}/superuser`, { method: 'PATCH',
+      body: { isSuperuser: false } });
+    assert.equal(demote.status, 422);
+    // Se rétrograder soi-même est refusé avant même le contrôle du dernier superuser.
+    assert.ok(['SELF_DEMOTION', 'LAST_SUPERUSER'].includes((await demote.json()).error.code));
+
+    const disable = await api(`/api/admin/users/${su.id}`, { method: 'PATCH',
+      body: { status: 'DISABLED' } });
+    assert.equal(disable.status, 422);
+  });
+
+  test('le superutilisateur détient les permissions absentes de ses rôles', async () => {
+    const me = await (await api('/api/auth/me')).json();
+    const all = await query('SELECT count(*)::int AS n FROM permission');
+    assert.equal(me.user.permissions.length, all.rows[0].n,
+      'le superutilisateur reçoit le catalogue complet');
+    assert.equal(me.user.isSuperuser, true);
+  });
+
+  test('le thème est lisible sans authentification et modifiable par un administrateur', async () => {
+    const pub = await api('/api/theme', { as: null });
+    assert.equal(pub.status, 200);
+    assert.match((await pub.json()).primary_color, /^#[0-9a-f]{6}$/i);
+
+    const saved = await (await api('/api/theme', { method: 'PUT',
+      body: { primaryColor: '#4338ca', radius: 'round', fontScale: 1.1 } })).json();
+    assert.equal(saved.primary_color, '#4338ca');
+    assert.equal(saved.radius, 'round');
+
+    // Une couleur non hexadécimale est rejetée : la valeur est réinjectée
+    // telle quelle dans une variable CSS, elle ne doit rien pouvoir porter d'autre.
+    assert.equal((await api('/api/theme', { method: 'PUT',
+      body: { primaryColor: 'red; background:url(x)' } })).status, 400);
+
+    const reset = await (await api('/api/theme/reset', { method: 'POST' })).json();
+    assert.equal(reset.primary_color, '#0f766e');
+  });
+
+  test('la personnalisation est refusée à un compte non administrateur', async () => {
+    assert.equal((await api('/api/theme', { as: 's.amrani', method: 'PUT',
+      body: { primaryColor: '#000000' } })).status, 403);
+    assert.equal((await api('/api/admin/roles/catalog', { as: 's.amrani' })).status, 403);
+  });
+});

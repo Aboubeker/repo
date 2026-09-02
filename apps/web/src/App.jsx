@@ -54,6 +54,7 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false);
   const [waiting, setWaiting] = useState(0);
   const [brand, setBrand] = useState(null);
+  const [theme, setTheme] = useState(null);
   const [density, toggleDensity] = useDensity();
   const toast = useToast();
 
@@ -64,6 +65,7 @@ export default function App() {
     // Le nom de l'établissement vient de la base : une clinique qui installe
     // le logiciel ne doit pas avoir à recompiler pour voir son propre nom.
     api.branding().then(setBrand).catch(() => {});
+    api.theme().then(setTheme).catch(() => {});
     setUnauthorizedHandler(() => { setUser(null); setToken(null); });
     (async () => {
       if (await api.refresh()) {
@@ -142,7 +144,9 @@ export default function App() {
     <div className="app">
       <nav className="sidebar">
         <div className="sidebar-brand">
-          <div className="mark" aria-hidden="true">✚</div>
+          {theme?.logo_data_uri
+            ? <img className="mark-img" src={theme.logo_data_uri} alt="" />
+            : <div className="mark" aria-hidden="true">✚</div>}
           <div>
             <strong>CliniRDV</strong>
             <span title={brand?.clinic_name}>{brand?.clinic_name || '—'}</span>

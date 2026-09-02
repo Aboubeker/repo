@@ -17,10 +17,14 @@ export default function Login({ onLogin }) {
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState(null);
   const [brand, setBrand] = useState(null);
+  const [theme, setTheme] = useState(null);
 
-  useEffect(() => {
+  useEffect(function loadPublicInfo() {
     api.health().then(setHealth).catch(() => setHealth(null));
     api.branding().then(setBrand).catch(() => {});
+    // Le thème est public : l'écran de connexion porte les couleurs et le
+    // logo de la clinique avant même qu'un compte ne soit identifié.
+    api.theme().then(setTheme).catch(() => {});
   }, []);
 
   const submit = async (e) => {
@@ -42,9 +46,16 @@ export default function Login({ onLogin }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={submit}>
-        <div className="login-logo" aria-hidden="true">✚</div>
+        {theme?.logo_data_uri
+          ? <img className="login-logo-img" src={theme.logo_data_uri}
+                 alt={brand?.clinic_name || 'Logo de la clinique'} />
+          : <div className="login-logo" aria-hidden="true">✚</div>}
         <h1>CliniRDV</h1>
         <p className="sub">{brand?.clinic_name || 'Clinique'} · Gestion des rendez-vous</p>
+
+        {theme?.login_message && (
+          <p className="login-message">{theme.login_message}</p>
+        )}
 
         <ErrorAlert error={error} />
 

@@ -138,6 +138,23 @@ export async function authenticate(username, password) {
 }
 
 export async function loadPermissions(userId) {
+  /*
+   * Le superutilisateur détient toutes les permissions, y compris celles
+   * ajoutées par de futures migrations.
+   *
+   * Les lui attribuer une à une via un rôle laisserait la porte ouverte à
+   * une exclusion accidentelle : il suffirait de décocher « admin.users »
+   * dans l'éditeur de rôles pour que plus personne ne puisse administrer le
+   * système. Ici la source est le catalogue complet des permissions, donc
+   * l'accès de secours ne dépend d'aucune configuration modifiable.
+   */
+  const su = await query(
+    'SELECT is_superuser FROM user_account WHERE id = $1', [userId]);
+  if (su.rows[0]?.is_superuser) {
+    const all = await query('SELECT code FROM permission');
+    return all.rows.map((r) => r.code);
+  }
+
   const { rows } = await query(
     `SELECT DISTINCT rp.permission_code AS code
        FROM user_role ur
@@ -151,5 +168,6 @@ export function publicUser(u) {
     id: u.id, username: u.username, fullName: u.full_name, email: u.email,
     roles: u.roles || [], permissions: u.permissions || [],
     practitionerId: u.practitioner_id, mustChangePassword: u.must_change_password,
+    isSuperuser: u.is_superuser === true,
   };
 }

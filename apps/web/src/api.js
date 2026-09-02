@@ -165,4 +165,25 @@ export const api = {
   callList: (date) => request(`/api/notifications/call-list${qs({ date })}`),
   health: () => request('/api/health'),
   branding: () => request('/api/branding'),
+
+  // --- Gouvernance : archivage de patients, suppression de comptes -------
+  // Côté serveur la fiche patient n'est jamais détruite : elle passe en
+  // statut ARCHIVED, ce qui préserve l'historique de soins et la facturation.
+  archivePatient: (id) => request(`/api/patients/${id}`, { method: 'DELETE' }),
+  restorePatient: (id) =>
+    request(`/api/patients/${id}/restore`, { method: 'POST', body: {} }),
+  deleteUser: (id) => request(`/api/admin/users/${id}`, { method: 'DELETE' }),
+  setSuperuser: (id, isSuperuser) =>
+    request(`/api/admin/users/${id}/superuser`, { method: 'PATCH', body: { isSuperuser } }),
+
+  // --- Rôles et permissions ---------------------------------------------
+  roleCatalog: () => request('/api/admin/roles/catalog'),
+  createRole: (b) => request('/api/admin/roles', { method: 'POST', body: b }),
+  updateRole: (id, b) => request(`/api/admin/roles/${id}`, { method: 'PATCH', body: b }),
+  deleteRole: (id) => request(`/api/admin/roles/${id}`, { method: 'DELETE' }),
+
+  // --- Apparence ---------------------------------------------------------
+  theme: () => request('/api/theme'),
+  updateTheme: (b) => request('/api/theme', { method: 'PUT', body: b }),
+  resetTheme: () => request('/api/theme/reset', { method: 'POST', body: {} }),
 };

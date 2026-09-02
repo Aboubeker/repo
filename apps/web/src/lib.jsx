@@ -407,3 +407,74 @@ export function installRipple() {
     btn.style.setProperty('--ry', `${((e.clientY - r.top) / r.height) * 100}%`);
   }, { passive: true });
 }
+
+/* ======================================================================
+   Thème serveur
+   ====================================================================== */
+
+/** Éclaircit ou assombrit une couleur #rrggbb d'un ratio donné. */
+function shade(hex, ratio) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const mix = (c) => Math.max(0, Math.min(255, Math.round(
+    ratio < 0 ? c * (1 + ratio) : c + (255 - c) * ratio)));
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(mix);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+/**
+ * Projette le thème enregistré sur le serveur dans les variables CSS.
+ *
+ * Le style reste décrit une seule fois dans styles.css : on ne réécrit que
+ * les quelques variables de tête, si bien qu'aucune règle n'a besoin d'être
+ * dupliquée pour être personnalisable. Les déclinaisons (survol, fonds
+ * clairs) sont calculées, ce qui évite de demander six couleurs à
+ * l'administrateur là où une seule suffit.
+ */
+export function applyTheme(theme) {
+  if (!theme || typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const s = root.style;
+
+  if (theme.primary_color) {
+    s.setProperty('--primary', theme.primary_color);
+    s.setProperty('--primary-dark', shade(theme.primary_color, -0.15));
+    s.setProperty('--primary-darker', shade(theme.primary_color, -0.3));
+    s.setProperty('--primary-light', shade(theme.primary_color, 0.82));
+    s.setProperty('--primary-soft', shade(theme.primary_color, 0.94));
+  }
+  if (theme.accent_color) s.setProperty('--accent', theme.accent_color);
+  if (theme.sidebar_color) s.setProperty('--sidebar-bg', theme.sidebar_color);
+
+  const radii = {
+    square: ['2px', '3px', '4px'],
+    medium: ['6px', '9px', '14px'],
+    round:  ['10px', '14px', '20px'],
+  }[theme.radius] || null;
+  if (radii) {
+    s.setProperty('--radius-sm', radii[0]);
+    s.setProperty('--radius', radii[1]);
+    s.setProperty('--radius-lg', radii[2]);
+  }
+
+  const scale = Number(theme.font_scale);
+  if (scale > 0) s.setProperty('--font-scale', String(scale));
+
+  /*
+   * La densité choisie par l'utilisateur sur son poste (bouton de la barre
+   * supérieure, mémorisé dans localStorage) l'emporte sur le réglage global :
+   * elle dépend de la taille de l'écran, pas de la charte de la clinique.
+   */
+  let local = null;
+  try { local = localStorage.getItem(DENSITY_KEY); } catch { /* mode privé */ }
+  root.setAttribute('data-density', local || theme.density || 'comfortable');
+}
+
+/** Charge le thème du serveur. Silencieux en cas d'échec : le style compilé sert de repli. */
+export function bootTheme() {
+  return fetch('/api/theme', { credentials: 'same-origin' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((t) => { applyTheme(t); return t; })
+    .catch(() => null);
+}

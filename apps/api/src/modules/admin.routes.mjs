@@ -13,7 +13,7 @@ export function registerAdminRoutes(router) {
   router.get('/api/admin/users', async () => ({
     items: await many(
       `SELECT u.id, u.username, u.full_name, u.email, u.status, u.last_login_at,
-              u.must_change_password, u.practitioner_id,
+              u.must_change_password, u.practitioner_id, u.is_superuser,
               array_remove(array_agg(DISTINCT r.code), NULL) AS roles
          FROM user_account u
          LEFT JOIN user_role ur ON ur.user_id = u.id
