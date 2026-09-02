@@ -10,6 +10,27 @@ const c = await pool.connect();
 const q = (sql, p) => c.query(sql, p);
 const first = async (sql, p) => (await c.query(sql, p)).rows[0];
 
+/**
+ * Le peuplement n'est pas rejouable (numéros de facture, plannings, séquences).
+ * Plutôt que d'échouer sur une violation de contrainte d'unicité, on détecte une
+ * base déjà peuplée et on s'arrête proprement : « npm run seed » devient sûr à
+ * relancer, et « --force » permet de repartir de zéro volontairement.
+ */
+const FORCE = process.argv.includes('--force');
+const existing = await first(
+  `SELECT (SELECT count(*) FROM patient)::int AS patients,
+          (SELECT count(*) FROM user_account)::int AS users`).catch(() => null);
+
+if (existing && (existing.patients > 0 || existing.users > 0) && !FORCE) {
+  console.log(`\n• Base déjà peuplée : ${existing.patients} patients, ${existing.users} comptes.`);
+  console.log('  Aucune modification effectuée.');
+  console.log('  Pour repartir de zéro :');
+  console.log('      node scripts/db.mjs reset && npm run migrate && npm run seed\n');
+  c.release();
+  await pool.end();
+  process.exit(0);
+}
+
 try {
   await q('BEGIN');
   console.log('• Initialisation des données de démonstration…');

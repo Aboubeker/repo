@@ -110,6 +110,23 @@ serveur (mêmes fichiers SQL), placer l'API derrière Nginx en TLS interne, acti
 sauvegardes planifiées (`cron` sur `/api/admin/backups`) et suivre le document 05 pour le
 durcissement, la rotation des secrets et les procédures de restauration.
 
+### Démarrage quotidien
+
+```bash
+npm run app        # démarre la base + le serveur et ouvre la page de connexion
+npm run doctor     # diagnostic si quelque chose ne fonctionne pas
+```
+
+Sous Windows, un double-clic sur **`Demarrer-CliniRDV.cmd`** suffit.
+
+`npm run doctor` vérifie chaque maillon (Node.js, dépendances, `.env`, cluster
+PostgreSQL, connexion, schéma, comptes, interface compilée, port applicatif) et affiche
+pour chaque échec la cause et la commande de correction.
+
+> **Ports** : l'application est sur **3001**, PostgreSQL sur **55432**. Le port 55432 ne
+> s'ouvre pas dans un navigateur — il parle un protocole binaire, pas HTTP. L'adresse à
+> utiliser est **http://localhost:3001**.
+
 ### Installation en une commande sur un poste local
 
 Un script d'installation automatise l'ensemble des prérequis (Node.js, dépendances,

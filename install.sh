@@ -204,10 +204,15 @@ $B$G  Installation terminée.$N
 
 EOF
 
+step "Diagnostic de l'installation"
+if ! node scripts/doctor.mjs; then
+  die "Installation incomplète. Corrigez les points ✗ ci-dessus puis relancez : node scripts/doctor.mjs"
+fi
+
 if [ "$DO_START" = "1" ]; then
   step "Démarrage de l'application"
-  printf '  Interface : %shttp://localhost:%s%s   (Ctrl+C pour arrêter)\n\n' "$B" "$PORT_APP" "$N"
-  exec npm start
+  printf '  La page de connexion va s'"'"'ouvrir dans votre navigateur.\n\n'
+  exec npm run app
 else
-  printf '  Lancez %snpm start%s pour démarrer l'"'"'application.\n\n' "$B" "$N"
+  printf '  Lancez %snpm run app%s pour démarrer et ouvrir la page de connexion.\n\n' "$B" "$N"
 fi

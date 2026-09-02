@@ -24,8 +24,18 @@ before(async () => {
   // Les factures issues d'exécutions précédentes sont supprimées avant leurs lignes
   const invScope = `(SELECT DISTINCT invoice_id FROM invoice_line WHERE appointment_id IN ${scope})`;
   await query(`DELETE FROM payment      WHERE invoice_id IN ${invScope}`);
-  await query(`UPDATE invoice SET credited_invoice_id = NULL
+  // Les avoirs portent un montant négatif que la contrainte
+  // « invoice_amount_sign_check » n'autorise qu'accompagné d'un
+  // credited_invoice_id. On les supprime donc au lieu de les détacher.
+  await query(`DELETE FROM payment WHERE invoice_id IN
+                 (SELECT id FROM invoice WHERE credited_invoice_id IN ${invScope})`);
+  // Un trigger interdit de modifier une facture émise : on repasse d'abord
+  // l'avoir en brouillon, puis on le supprime.
+  await query(`UPDATE invoice SET status = 'DRAFT'
                 WHERE credited_invoice_id IN ${invScope}`);
+  await query(`DELETE FROM invoice_line WHERE invoice_id IN
+                 (SELECT id FROM invoice WHERE credited_invoice_id IN ${invScope})`);
+  await query(`DELETE FROM invoice WHERE credited_invoice_id IN ${invScope}`);
   await query(`UPDATE invoice SET status = 'DRAFT' WHERE id IN ${invScope}`);
   await query(`DELETE FROM invoice_line WHERE appointment_id IN ${scope}`);
   await query(`DELETE FROM invoice WHERE NOT EXISTS

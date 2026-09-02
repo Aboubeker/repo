@@ -167,10 +167,17 @@ Write-Host @"
     .\install.ps1 -Reset       reinstallation complete
 "@
 
+# Diagnostic final : valide chaque maillon avant de rendre la main.
+Step "Diagnostic de l'installation"
+node scripts/doctor.mjs
+if ($LASTEXITCODE -ne 0) {
+  Die "L'installation est incomplete. Corrigez les points marques [x] ci-dessus, puis relancez : node scripts/doctor.mjs"
+}
+
 if (-not $NoStart) {
   Step "Demarrage de l'application"
-  Write-Host "  Interface : http://localhost:$portApp   (Ctrl+C pour arreter)`n"
-  npm start
+  Write-Host "  La page de connexion va s'ouvrir dans votre navigateur.`n"
+  npm run app
 } else {
-  Write-Host "  Lancez 'npm start' pour demarrer l'application.`n"
+  Write-Host "  Lancez 'npm run app' pour demarrer et ouvrir la page de connexion.`n"
 }
