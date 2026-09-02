@@ -189,8 +189,8 @@ $B$G  Installation terminée.$N
 
   ${B}Comptes de démonstration${N} — mot de passe : ${B}Clinique2026!${N}
     admin      Administrateur (accès complet)
-    s.martin   Réceptionniste (agenda, file d'attente, encaissement)
-    a.bernard  Praticien (dossiers médicaux, consultation)
+    s.amrani   Réceptionniste (agenda, file d'attente, encaissement)
+    a.benali   Praticien (dossiers médicaux, consultation)
     c.compta   Facturation (factures, caisse, impayés)
 
   ${B}Commandes utiles${N}

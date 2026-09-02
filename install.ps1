@@ -153,8 +153,8 @@ Write-Host @"
 
   Comptes de demonstration - mot de passe : Clinique2026!
     admin      Administrateur (acces complet)
-    s.martin   Receptionniste (agenda, file d'attente, encaissement)
-    a.bernard  Praticien (dossiers medicaux, consultation)
+    s.amrani   Receptionniste (agenda, file d'attente, encaissement)
+    a.benali   Praticien (dossiers medicaux, consultation)
     c.compta   Facturation (factures, caisse, impayes)
 
   Commandes utiles

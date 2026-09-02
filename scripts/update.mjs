@@ -104,6 +104,24 @@ const install = spawnSync(npmCmd, ['install', '--no-audit', '--no-fund'],
 if (install.status !== 0) fail('Échec de « npm install ».');
 ok('Dépendances à jour');
 
+/* ------------------------------------------------------ interface web */
+/*
+ * Recompilation systématique — et non conditionnelle.
+ *
+ * Le navigateur ne lit jamais les sources : il lit `apps/web/dist`, produit
+ * par Vite. Une mise à jour qui récupère le code sans recompiler laisse donc
+ * l'utilisateur devant l'ANCIENNE interface, tout en croyant être à jour.
+ * C'est exactement ce qui s'est produit : montants encore en euros et ancien
+ * habillage après un `npm run update` pourtant réussi.
+ *
+ * Le coût est d'environ deux secondes. Aucune raison de l'éviter.
+ */
+step('Recompilation de l\'interface');
+const build = spawnSync(npmCmd, ['run', 'build:web'],
+  { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
+if (build.status !== 0) fail('Échec de la compilation de l\'interface.');
+ok('Interface recompilée');
+
 console.log(`
   ${c(32, bold('Mise à jour terminée.'))}
 

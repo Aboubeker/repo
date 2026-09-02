@@ -8,7 +8,8 @@
  * Objectif : une seule commande, une fenêtre de connexion à l'écran.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, copyFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, copyFileSync, writeFileSync,
+         readdirSync, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { connect } from 'node:net';
 import { dirname, resolve } from 'node:path';
@@ -118,9 +119,40 @@ else if (needSeed) runNpm('seed', 'Chargement des données de démonstration');
 else ok('Schéma et données en place');
 
 /* -------------------------------------------------------- interface web */
-if (!existsSync(resolve(ROOT, 'apps/web/dist/index.html')))
+/*
+ * L'interface est recompilée si `dist` est absent OU périmé.
+ *
+ * Comparer la date du bundle à celle de la source la plus récente évite le
+ * piège classique : après un `git pull`, `dist/index.html` existe toujours,
+ * donc l'ancienne condition « si le fichier est absent » considérait
+ * l'interface à jour et servait le bundle périmé. L'utilisateur voyait alors
+ * l'ancienne version malgré une mise à jour réussie.
+ */
+const distIndex = resolve(ROOT, 'apps/web/dist/index.html');
+const webSrc = resolve(ROOT, 'apps/web');
+
+/** Date de modification la plus récente sous `apps/web/src` + config Vite. */
+function newestSourceTime(dir) {
+  let newest = 0;
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.name === 'dist' || e.name === 'node_modules') continue;
+      const p = resolve(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else newest = Math.max(newest, statSync(p).mtimeMs);
+    }
+  };
+  try { walk(dir); } catch { return Infinity; }   // au moindre doute, on rebâtit
+  return newest;
+}
+
+if (!existsSync(distIndex)) {
   runNpm('build:web', 'Compilation de l\'interface');
-else ok('Interface compilée');
+} else if (newestSourceTime(webSrc) > statSync(distIndex).mtimeMs) {
+  runNpm('build:web', 'Interface périmée — recompilation');
+} else {
+  ok('Interface compilée');
+}
 
 /* ----------------------------------------------------- port disponible */
 if (await probe(PORT))
@@ -173,8 +205,8 @@ console.log(`
 
   ${bold('Comptes de démonstration')} — mot de passe ${bold('Clinique2026!')}
     admin      Administrateur (accès complet)
-    s.martin   Réceptionniste (agenda, file d'attente, encaissement)
-    a.bernard  Praticien (dossiers médicaux)
+    s.amrani   Réceptionniste (agenda, file d'attente, encaissement)
+    a.benali   Praticien (dossiers médicaux)
     c.compta   Facturation (factures, caisse)
 
   ${c(90, 'Ctrl+C pour arrêter le serveur.')}

@@ -104,3 +104,45 @@ describe('Portabilité Windows / Linux / macOS', () => {
     }
   });
 });
+
+/* ======================================================================
+   Chaîne de mise à jour
+   ----------------------------------------------------------------------
+   Le navigateur ne lit jamais les sources : il lit `apps/web/dist`, produit
+   par Vite. Une mise à jour qui récupère le code sans recompiler laisse donc
+   l'utilisateur devant l'ancienne interface tout en le croyant à jour.
+   Symptôme observé : montants encore en euros après un `npm run update`
+   pourtant réussi. Ces tests verrouillent la correction.
+   ====================================================================== */
+describe('Chaîne de mise à jour', () => {
+  const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
+
+  test('« npm run update » recompile l\'interface', () => {
+    const s = read('scripts/update.mjs');
+    assert.ok(/build:web/.test(s),
+      'update.mjs récupère le code sans recompiler : l\'utilisateur verra ' +
+      'l\'ancienne interface après une mise à jour réussie');
+  });
+
+  test('« npm run app » détecte un bundle périmé', () => {
+    const s = read('scripts/app.mjs');
+    // Il ne suffit pas de tester l'existence de dist/index.html : après un
+    // git pull le fichier existe toujours, mais il est obsolète.
+    assert.ok(/mtimeMs/.test(s),
+      'app.mjs ne compare pas la date du bundle à celle des sources');
+  });
+
+  test('les comptes affichés au démarrage existent réellement', () => {
+    // Les scripts annonçaient s.martin / a.bernard, renommés depuis en
+    // s.amrani / a.benali : l'utilisateur ne pouvait pas se connecter.
+    const seed = read('apps/api/src/db/seed.mjs');
+    for (const f of ['scripts/app.mjs', 'install.sh', 'install.ps1']) {
+      const shown = [...read(f).matchAll(/^\s{4}([a-z]\.[a-z]+)\s{2,}/gm)]
+        .map((m) => m[1]);
+      for (const account of shown) {
+        assert.ok(seed.includes(`'${account}'`),
+          `${f} annonce le compte « ${account} », absent du jeu de données`);
+      }
+    }
+  });
+});
