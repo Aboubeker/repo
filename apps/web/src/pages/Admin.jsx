@@ -282,7 +282,10 @@ function Backups() {
   const [integrity, setIntegrity] = useState(null);
   const toast = useToast();
 
-  const load = () => api.backups().then(setD).catch(setError);
+  const load = () => { api.backups().then(setD).catch(setError); };
+  // Accolades indispensables : en flèche concise, `load` retournerait la
+  // promesse, que React prendrait pour la fonction de nettoyage et
+  // appellerait au démontage → « is not a function » à la navigation.
   useEffect(load, []);
 
   const run = async () => {

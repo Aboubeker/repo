@@ -113,7 +113,10 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
   const [paying, setPaying] = useState(false);
   const toast = useToast();
 
-  const load = () => api.invoice(id).then(setD).catch(setError);
+  const load = () => { api.invoice(id).then(setD).catch(setError); };
+  // Accolades indispensables : en flèche concise, `load` retournerait la
+  // promesse, que React prendrait pour la fonction de nettoyage et
+  // appellerait au démontage → « is not a function » à la navigation.
   useEffect(load, [id]);
 
   if (!d) return <Modal title="Facture" onClose={onClose}><Spinner /></Modal>;
@@ -344,7 +347,10 @@ function Cash({ user }) {
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
-  const load = () => api.currentCashSession().then(setD).catch(setError);
+  const load = () => { api.currentCashSession().then(setD).catch(setError); };
+  // Accolades indispensables : en flèche concise, `load` retournerait la
+  // promesse, que React prendrait pour la fonction de nettoyage et
+  // appellerait au démontage → « is not a function » à la navigation.
   useEffect(load, []);
 
   if (error) return <ErrorAlert error={error} />;

@@ -17,7 +17,21 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false,
+    /*
+     * Source maps activées en production.
+     *
+     * Sans elles, un rapport d'erreur ne contient que des noms minifiés :
+     * « TypeError: r is not a function » suivi d'une pile en `Di / Ir / Kn`,
+     * strictement inexploitable. Le diagnostic d'un incident signalé par la
+     * clinique passait de quelques minutes à plusieurs heures de recherche
+     * à l'aveugle.
+     *
+     * Le déploiement étant local et hors ligne, aucun code n'est exposé à
+     * l'extérieur : l'argument habituel contre les source maps en production
+     * ne s'applique pas ici. Les fichiers .map ne sont téléchargés par le
+     * navigateur que si les outils de développement sont ouverts.
+     */
+    sourcemap: true,
     chunkSizeWarningLimit: 900,
   },
 });

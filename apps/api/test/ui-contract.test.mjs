@@ -86,6 +86,46 @@ describe('Props de rappel', () => {
   }
 });
 
+describe('Fonctions de nettoyage de useEffect', () => {
+  /*
+   * Cause réelle du « r is not a function » signalé pendant la navigation.
+   *
+   * `useEffect(load, [])` où `load` est écrit en flèche concise —
+   * `const load = () => api.x().then(setD)` — retourne une promesse. React
+   * interprète toute valeur de retour comme la fonction de nettoyage et
+   * l'appelle au démontage du composant, c'est-à-dire au changement d'écran.
+   * D'où une erreur qui ne survient jamais à l'affichage, toujours en
+   * quittant la page, et dont la pile ne contient que des frames internes
+   * à React : aucun code applicatif n'y apparaît.
+   */
+  for (const file of pages()) {
+    test(`${file} — useEffect ne reçoit pas de fonction rendant une promesse`, () => {
+      const src = read(join('pages', file));
+
+      for (const m of src.matchAll(/useEffect\(\s*(\w+)\s*,/g)) {
+        const fn = m[1];
+
+        // Un même fichier contient plusieurs composants, donc plusieurs
+        // fonctions de même nom. Seule compte la définition qui PRÉCÈDE
+        // immédiatement ce useEffect : c'est celle qui est dans la portée.
+        const before = src.slice(0, m.index);
+        const defs = [...before.matchAll(
+          new RegExp(`const\\s+${fn}\\s*=\\s*(?:async\\s*)?\\([^)]*\\)\\s*=>\\s*(\\{?)`, 'g'))];
+        if (defs.length === 0) continue;
+
+        const nearest = defs[defs.length - 1];
+        const hasBlockBody = nearest[1] === '{';
+
+        assert.ok(hasBlockBody,
+          `${file} ligne ~${before.split('\n').length} : useEffect(${fn}, …) où ` +
+          `« ${fn} » est une flèche concise. Elle retourne une promesse, que ` +
+          `React appellera comme fonction de nettoyage au démontage → ` +
+          `TypeError à la navigation. Entourez le corps d'accolades.`);
+      }
+    });
+  }
+});
+
 describe('Barrière d\'erreur', () => {
   test('le rapport conserve la pile et l\'arbre de composants', () => {
     const main = read('main.jsx');
