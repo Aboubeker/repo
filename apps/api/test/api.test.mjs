@@ -932,6 +932,75 @@ describe('Gouvernance', () => {
       method: 'PATCH', body: { amount: 1 } })).status, 403);
   });
 
+  test('un praticien ne voit que son propre agenda', async () => {
+    /*
+     * Le filtre par praticien n'existait que dans l'interface : appeler
+     * l'API sans « practitionerIds » renvoyait le planning de toute la
+     * clinique, secret médical compris.
+     */
+    const mine = await (await api('/api/appointments?from=2026-09-01&to=2026-09-07',
+      { as: 'a.benali' })).json();
+    assert.ok(mine.items.length > 0, 'le praticien doit voir ses propres rendez-vous');
+
+    const names = new Set(mine.items.map((a) => a.practitioner_last_name));
+    assert.equal(names.size, 1, `un seul praticien attendu, reçu : ${[...names]}`);
+    assert.ok(names.has('BENALI'));
+
+    // L'accueil, lui, a besoin de la vue complète pour placer les rendez-vous.
+    const all = await (await api('/api/appointments?from=2026-09-01&to=2026-09-07',
+      { as: 's.amrani' })).json();
+    assert.ok(new Set(all.items.map((a) => a.practitioner_last_name)).size > 1);
+  });
+
+  test('demander explicitement l\'agenda d\'un confrère ne le divulgue pas', async () => {
+    const other = await one(
+      `SELECT id FROM practitioner WHERE last_name <> 'BENALI' AND is_active LIMIT 1`);
+    const d = await (await api(
+      `/api/appointments?from=2026-09-01&to=2026-09-07&practitionerIds=${other.id}`,
+      { as: 'a.benali' })).json();
+    assert.equal(d.items.length, 0,
+      'le paramètre client ne doit pas élargir le périmètre autorisé');
+  });
+
+  test('la file du jour et l\'occupation suivent la même règle', async () => {
+    const q = await (await api('/api/appointments/today/queue?date=2026-09-02',
+      { as: 'a.benali' })).json();
+    const all = [...q.expected, ...q.waiting, ...q.inProgress, ...q.done, ...q.absent];
+    for (const a of all) assert.equal(a.practitioner_last_name, 'BENALI');
+
+    const other = await one(
+      `SELECT id FROM practitioner WHERE last_name <> 'BENALI' AND is_active LIMIT 1`);
+    assert.equal((await api(`/api/practitioners/${other.id}/occupancy`,
+      { as: 'a.benali' })).status, 403);
+    assert.equal((await api(`/api/practitioners/${other.id}/occupancy`,
+      { as: 's.amrani' })).status, 200);
+  });
+
+  test('un compte praticien sans fiche rattachée ne voit rien, plutôt que tout', async () => {
+    /*
+     * Cas limite le plus dangereux : si le cloisonnement se contentait de
+     * « pas de fiche → pas de filtre », une configuration incomplète
+     * ouvrirait l'agenda entier. On veut l'échec fermé.
+     */
+    await api('/api/admin/users', { method: 'POST', body: {
+      username: 'testuser.sansfiche', fullName: 'Praticien sans fiche',
+      password: 'Clinique2026!', roles: ['PRACTITIONER'] } });
+
+    const r = await fetch(`${base}/api/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'testuser.sansfiche', password: 'Clinique2026!' }) });
+    const token = (await r.json()).accessToken;
+
+    const d = await (await fetch(`${base}/api/appointments?from=2026-09-01&to=2026-09-07`,
+      { headers: { Authorization: `Bearer ${token}` } })).json();
+    assert.equal(d.items.length, 0, 'aucun rendez-vous, et surtout pas ceux des autres');
+
+    const q = await (await fetch(`${base}/api/appointments/today/queue?date=2026-09-02`,
+      { headers: { Authorization: `Bearer ${token}` } })).json();
+    assert.deepEqual(q.expected, []);
+    assert.ok(Array.isArray(q.waiting), 'la forme de la réponse reste celle attendue');
+  });
+
   test('la personnalisation est refusée à un compte non administrateur', async () => {
     assert.equal((await api('/api/theme', { as: 's.amrani', method: 'PUT',
       body: { primaryColor: '#000000' } })).status, 403);

@@ -29,12 +29,24 @@ export default function Calendar({ user, go, onNewAppt }) {
     return Array.from({ length: 5 }, (_, i) => new Date(s.getTime() + i * 864e5));
   }, [view, anchor]);
 
-  useEffect(() => {
+  /*
+   * Un praticien ne voit que son propre agenda.
+   *
+   * Le serveur restreint déjà les rendez-vous renvoyés ; sans ce filtre,
+   * l'écran afficherait les colonnes de tous les confrères, vides et
+   * incompréhensibles. On aligne donc l'affichage sur ce que la permission
+   * autorise réellement.
+   */
+  const seesAll = can(user, 'appointment.read.all');
+  const ownId = user?.practitionerId || null;
+
+  useEffect(function loadPractitioners() {
     api.practitioners().then((d) => {
-      setPractitioners(d.items);
-      setSelectedPract(d.items.slice(0, 4).map((p) => p.id));
+      const list = seesAll ? d.items : d.items.filter((p) => p.id === ownId);
+      setPractitioners(list);
+      setSelectedPract(list.slice(0, 4).map((p) => p.id));
     }).catch(setError);
-  }, []);
+  }, [seesAll, ownId]);
 
   const load = useCallback(async () => {
     if (!selectedPract.length) { setItems([]); return; }
@@ -97,7 +109,8 @@ export default function Calendar({ user, go, onNewAppt }) {
 
         <div style={{ padding: '9px 16px', display: 'flex', gap: 8, flexWrap: 'wrap',
                       alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
-          <span className="small muted">Praticiens :</span>
+          <span className="small muted">
+            {seesAll ? 'Praticiens :' : 'Mon agenda :'}</span>
           {practitioners.map((p) => {
             const on = selectedPract.includes(p.id);
             return (

@@ -1,10 +1,37 @@
 /** Module Rendez-vous : agenda, création, déplacement, annulation, parcours patient. */
 import { many, one, tx } from '../core/db.mjs';
-import { notFound, conflict, unprocessable, badRequest } from '../core/errors.mjs';
+import { notFound, conflict, unprocessable, badRequest, forbidden } from '../core/errors.mjs';
 import { writeAudit } from '../core/audit.mjs';
 import { validate } from '../core/validate.mjs';
 import { computeAvailableSlots, findFreeRoom, occupancyFor } from './scheduling.service.mjs';
 import { scheduleAppointmentNotifications, cancelAppointmentNotifications } from './notifications.service.mjs';
+
+/**
+ * Praticiens qu'un utilisateur a le droit de consulter.
+ *
+ * Renvoie `null` lorsqu'il peut tout voir (accueil, facturation,
+ * administration), ou la liste de ses propres fiches sinon.
+ *
+ * Le cloisonnement est appliqué ICI, côté serveur, et non par un filtre
+ * d'interface : l'agenda était auparavant restreint par le seul paramètre
+ * `practitionerIds` envoyé par le navigateur, qu'il suffisait d'omettre pour
+ * obtenir le planning de toute la clinique.
+ *
+ * Un praticien sans fiche rattachée obtient une liste vide plutôt que la vue
+ * complète : en cas de configuration incomplète, mieux vaut un agenda vide —
+ * visible et signalé — qu'une fuite silencieuse vers les données des confrères.
+ */
+export function visiblePractitionerIds(ctx) {
+  const perms = ctx.user?.permissions || [];
+  if (perms.includes('appointment.read.all') || perms.includes('*')) return null;
+  return ctx.user?.practitionerId ? [ctx.user.practitionerId] : [];
+}
+
+/** File du jour vide, dans la forme exacte attendue par l'interface. */
+function emptyQueue(date) {
+  return { date, expected: [], waiting: [], inProgress: [],
+           done: [], absent: [], cancelled: [] };
+}
 
 export function registerAppointmentRoutes(router) {
 
@@ -12,8 +39,24 @@ export function registerAppointmentRoutes(router) {
   router.get('/api/appointments', async (ctx) => {
     const from = ctx.query.from || new Date().toISOString().slice(0, 10);
     const to = ctx.query.to || from;
-    const practitionerIds = (ctx.query.practitionerIds || '').split(',').filter(Boolean);
+    let practitionerIds = (ctx.query.practitionerIds || '').split(',').filter(Boolean);
     const statuses = (ctx.query.statuses || '').split(',').filter(Boolean);
+
+    /*
+     * Restriction au périmètre autorisé.
+     *
+     * On intersecte la demande du client avec ce qu'il a le droit de voir,
+     * au lieu de lui faire confiance : un praticien qui demande l'agenda d'un
+     * confrère reçoit le sien, et celui qui ne demande rien ne reçoit plus
+     * toute la clinique.
+     */
+    const allowed = visiblePractitionerIds(ctx);
+    if (allowed) {
+      practitionerIds = practitionerIds.length
+        ? practitionerIds.filter((id) => allowed.includes(id))
+        : allowed;
+      if (practitionerIds.length === 0) return { items: [] };
+    }
 
     const params = [`${from} 00:00:00`, `${to} 23:59:59`];
     let where = `period && tstzrange($1::timestamptz, $2::timestamptz)`;
@@ -257,14 +300,26 @@ export function registerAppointmentRoutes(router) {
   /* --------------------------- File du jour --------------------------- */
   router.get('/api/appointments/today/queue', async (ctx) => {
     const day = ctx.query.date || new Date().toISOString().slice(0, 10);
+
+    // La file d'attente suit la même règle que l'agenda : un praticien y voit
+    // les patients qui l'attendent, pas ceux de la salle d'à côté.
+    const allowed = visiblePractitionerIds(ctx);
+    const params = [`${day} 00:00:00`, `${day} 23:59:59`];
+    let scope = '';
+    if (allowed) {
+      if (allowed.length === 0) return emptyQueue(day);
+      params.push(allowed);
+      scope = ` AND a.practitioner_id = ANY($${params.length})`;
+    }
+
     const rows = await many(
       `SELECT a.*, s.no_show_count, s.critical_allergy_count, s.outstanding_balance,
               (SELECT i.id FROM invoice i WHERE i.patient_id = a.patient_id
                  AND i.status IN ('ISSUED','PARTIALLY_PAID') LIMIT 1) AS open_invoice_id
          FROM v_appointment_full a
          JOIN v_patient_summary s ON s.id = a.patient_id
-        WHERE a.period && tstzrange($1::timestamptz, $2::timestamptz)
-        ORDER BY a.start_at`, [`${day} 00:00:00`, `${day} 23:59:59`]);
+        WHERE a.period && tstzrange($1::timestamptz, $2::timestamptz)${scope}
+        ORDER BY a.start_at`, params);
     const group = (st) => rows.filter((r) => st.includes(r.status));
     return {
       date: day,
@@ -398,6 +453,13 @@ export function registerAppointmentRoutes(router) {
   router.get('/api/practitioners/:id/occupancy', async (ctx) => {
     const from = ctx.query.from || new Date().toISOString().slice(0, 10);
     const to = ctx.query.to || from;
+
+    // Le taux d'occupation d'un confrère est une donnée d'activité : elle
+    // relève de la direction, pas d'un praticien voisin.
+    const allowed = visiblePractitionerIds(ctx);
+    if (allowed && !allowed.includes(ctx.params.id)) {
+      throw forbidden('Vous ne pouvez consulter que votre propre activité.');
+    }
     return occupancyFor(ctx.params.id, from, to);
   }, { permission: 'appointment.read' });
 }
