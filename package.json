@@ -19,7 +19,8 @@
     "test": "node --env-file=.env --test apps/api/test/*.test.mjs",
     "setup": "npm run db:start && npm run migrate && npm run seed",
     "app": "node scripts/app.mjs",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "update": "node scripts/update.mjs"
   },
   "devDependencies": {
     "embedded-postgres": "18.4.0-beta.17"

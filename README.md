@@ -110,6 +110,21 @@ serveur (mêmes fichiers SQL), placer l'API derrière Nginx en TLS interne, acti
 sauvegardes planifiées (`cron` sur `/api/admin/backups`) et suivre le document 05 pour le
 durcissement, la rotation des secrets et les procédures de restauration.
 
+### Mettre à jour la copie locale
+
+```bash
+npm run update     # récupère la dernière version puis réinstalle les dépendances
+```
+
+Sous Windows, double-cliquez sur **`Mettre-a-jour.cmd`**.
+
+> **Pourquoi ne pas utiliser `git pull` directement ?** `npm install` réécrit
+> `package.json` et `package-lock.json`. Git refuse alors la mise à jour avec
+> *« Your local changes would be overwritten by merge »* et **abandonne**. Le message
+> passe facilement inaperçu, et l'on croit à tort disposer de la dernière version —
+> d'où des erreurs du type `Missing script: "app"`. `npm run update` restaure ces deux
+> fichiers générés, met de côté vos éventuelles modifications, puis se met à jour.
+
 ### Démarrage quotidien
 
 ```bash
