@@ -8,7 +8,7 @@ import { extname, join, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Router, createHandler } from './core/http.mjs';
-import { healthcheck, closePool } from './core/db.mjs';
+import { healthcheck, closePool, query } from './core/db.mjs';
 import { registerAuthRoutes } from './modules/auth.routes.mjs';
 import { registerPatientRoutes } from './modules/patients.routes.mjs';
 import { registerPractitionerRoutes } from './modules/practitioners.routes.mjs';
@@ -46,6 +46,28 @@ export function buildRouter() {
   router.get('/api/health', async () => {
     const db = await healthcheck();
     return { status: 'ok', database: db, uptimeSeconds: Math.round(process.uptime()) };
+  }, { public: true });
+
+  /*
+   * Identité de l'établissement, accessible sans authentification : l'écran de
+   * connexion et la barre latérale doivent afficher le nom réel de la clinique
+   * avant toute ouverture de session. Ne renvoie que des informations
+   * publiques — jamais de données patient ni de paramètres de sécurité.
+   */
+  router.get('/api/branding', async () => {
+    const rows = await query(
+      `SELECT key, value FROM app_setting
+        WHERE key IN ('clinic.name','clinic.city','clinic.wilaya','clinic.phone',
+                      'clinic.agrement','clinic.timezone')`);
+    const s = Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
+    return {
+      clinic_name: s['clinic.name'] || process.env.CLINIC_NAME || 'Clinique',
+      city:        s['clinic.city'] || null,
+      wilaya:      s['clinic.wilaya'] || null,
+      phone:       s['clinic.phone'] || null,
+      agrement:    s['clinic.agrement'] || null,
+      timezone:    s['clinic.timezone'] || process.env.CLINIC_TZ || 'Africa/Algiers',
+    };
   }, { public: true });
 
   router.get('/api/ready', async () => {

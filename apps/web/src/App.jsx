@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api, setToken, setUnauthorizedHandler } from './api.js';
-import { can, useToast, Spinner } from './lib.jsx';
+import { can, useToast, Spinner, useDensity, applyStoredDensity } from './lib.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Calendar from './pages/Calendar.jsx';
@@ -14,20 +14,33 @@ import Reports from './pages/Reports.jsx';
 import Admin from './pages/Admin.jsx';
 import NewAppointment from './pages/NewAppointment.jsx';
 
-const NAV = [
-  { group: 'Activité' },
-  { id: 'dashboard',     label: 'Tableau de bord', icon: '◧' },
-  { id: 'calendar',      label: 'Agenda',          icon: '▤', perm: 'appointment.read' },
-  { id: 'queue',         label: 'File du jour',    icon: '⏱', perm: 'appointment.read' },
-  { group: 'Dossiers' },
-  { id: 'patients',      label: 'Patients',        icon: '⚕', perm: 'patient.read' },
-  { id: 'practitioners', label: 'Praticiens',      icon: '👤', perm: 'practitioner.read' },
-  { id: 'resources',     label: 'Ressources',      icon: '🏥', perm: 'resource.read' },
-  { group: 'Gestion' },
-  { id: 'billing',       label: 'Facturation',     icon: '€',  perm: 'billing.read' },
-  { id: 'reports',       label: 'Rapports',        icon: '📊', perm: 'report.read' },
-  { id: 'admin',         label: 'Administration',  icon: '⚙',  perm: 'admin.settings' },
+/*
+ * Navigation en deux blocs seulement.
+ *
+ * La version précédente exposait dix entrées sur trois groupes, toutes au même
+ * niveau visuel : une réceptionniste devait choisir entre « Praticiens »,
+ * « Ressources » et « Administration » alors qu'elle n'ouvre en pratique que
+ * trois écrans dans sa journée. Le quotidien est désormais isolé en haut ;
+ * la configuration, consultée quelques fois par mois, est reléguée en bas et
+ * repliée par défaut.
+ */
+const NAV_DAILY = [
+  { id: 'dashboard', label: 'Aujourd\'hui',  icon: '◧' },
+  { id: 'queue',     label: 'File d\'attente', icon: '⏱', perm: 'appointment.read',
+    badge: 'waiting' },
+  { id: 'calendar',  label: 'Agenda',        icon: '▤', perm: 'appointment.read' },
+  { id: 'patients',  label: 'Patients',      icon: '⚕', perm: 'patient.read' },
+  { id: 'billing',   label: 'Facturation',   icon: '₪', perm: 'billing.read' },
 ];
+
+const NAV_CONFIG = [
+  { id: 'practitioners', label: 'Praticiens',     icon: '👤', perm: 'practitioner.read' },
+  { id: 'resources',     label: 'Salles & équip.', icon: '🏥', perm: 'resource.read' },
+  { id: 'reports',       label: 'Rapports',       icon: '📊', perm: 'report.read' },
+  { id: 'admin',         label: 'Administration', icon: '⚙',  perm: 'admin.settings' },
+];
+
+const ALL_NAV = [...NAV_DAILY, ...NAV_CONFIG];
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -35,10 +48,20 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [patientId, setPatientId] = useState(null);
   const [newAppt, setNewAppt] = useState(null);   // null | {} | { patientId }
+  // Ouvert d'emblée pour les profils qui n'ont accès qu'à la configuration
+  // (un administrateur pur ne verrait sinon qu'un menu vide au démarrage).
+  const [showConfig, setShowConfig] = useState(false);
+  const [waiting, setWaiting] = useState(0);
+  const [brand, setBrand] = useState(null);
+  const [density, toggleDensity] = useDensity();
   const toast = useToast();
 
   // Reprise de session au chargement (jeton de rafraîchissement en cookie)
   useEffect(() => {
+    applyStoredDensity();
+    // Le nom de l'établissement vient de la base : une clinique qui installe
+    // le logiciel ne doit pas avoir à recompiler pour voir son propre nom.
+    api.branding().then(setBrand).catch(() => {});
     setUnauthorizedHandler(() => { setUser(null); setToken(null); });
     (async () => {
       if (await api.refresh()) {
@@ -47,6 +70,26 @@ export default function App() {
       setBooting(false);
     })();
   }, []);
+
+  // Compteur de la file d'attente, rafraîchi toutes les 45 s. Permet à la
+  // réception de voir arriver les patients depuis n'importe quel écran, sans
+  // charger le serveur : une seule requête légère, et seulement si l'onglet
+  // est visible.
+  useEffect(() => {
+    if (!user || !can(user, 'appointment.read')) return;
+    let alive = true;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const q = await api.queue(today);
+        if (alive) setWaiting(q.waiting.length);
+      } catch { /* le badge est accessoire : pas d'erreur affichée */ }
+    };
+    tick();
+    const h = setInterval(tick, 45_000);
+    return () => { alive = false; clearInterval(h); };
+  }, [user, page]);
 
   const go = useCallback((id, arg) => {
     if (id === 'patient') { setPatientId(arg); setPage('patient'); }
@@ -75,28 +118,46 @@ export default function App() {
   if (booting) return <div style={{ paddingTop: 120 }}><Spinner label="Connexion au serveur local…" /></div>;
   if (!user) return <Login onLogin={setUser} />;
 
-  const visible = NAV.filter((n) => n.group || !n.perm || can(user, n.perm));
-  const current = NAV.find((n) => n.id === page);
+  const allowed = (n) => !n.perm || can(user, n.perm);
+  const daily = NAV_DAILY.filter(allowed);
+  const config = NAV_CONFIG.filter(allowed);
+  const current = ALL_NAV.find((n) => n.id === page);
+
+  const navButton = (n) => (
+    <button key={n.id} className={page === n.id ? 'active' : ''}
+            onClick={() => go(n.id)}
+            aria-current={page === n.id ? 'page' : undefined}>
+      <span className="ico" aria-hidden="true">{n.icon}</span>{n.label}
+      {n.badge === 'waiting' && waiting > 0 && (
+        <span className="nav-count" title={`${waiting} patient(s) en attente`}>
+          {waiting}
+        </span>
+      )}
+    </button>
+  );
 
   return (
     <div className="app">
       <nav className="sidebar">
         <div className="sidebar-brand">
-          <div className="mark">C</div>
+          <div className="mark" aria-hidden="true">✚</div>
           <div>
             <strong>CliniRDV</strong>
-            <span>Clinique Saint-Michel</span>
+            <span title={brand?.clinic_name}>{brand?.clinic_name || '—'}</span>
           </div>
         </div>
         <div className="sidebar-nav">
-          {visible.map((n, i) => n.group
-            ? <div className="group" key={`g${i}`}>{n.group}</div>
-            : (
-              <button key={n.id} className={page === n.id ? 'active' : ''}
-                      onClick={() => go(n.id)}>
-                <span className="ico">{n.icon}</span>{n.label}
+          {daily.map(navButton)}
+          {config.length > 0 && (
+            <>
+              <button className="group-toggle" onClick={() => setShowConfig((v) => !v)}
+                      aria-expanded={showConfig}>
+                <span className="ico" aria-hidden="true">{showConfig ? '▾' : '▸'}</span>
+                Configuration
               </button>
-            ))}
+              {showConfig && config.map(navButton)}
+            </>
+          )}
         </div>
         <div className="sidebar-foot">
           <span className="dot" />Serveur local · v1.0.0
@@ -113,6 +174,13 @@ export default function App() {
               + Nouveau rendez-vous <kbd style={{ opacity: .7, fontSize: 11 }}>N</kbd>
             </button>
           )}
+          <button className="btn ghost sm" onClick={toggleDensity}
+                  title={density === 'compact'
+                    ? 'Affichage confortable'
+                    : 'Affichage compact — plus de lignes visibles'}>
+            {density === 'compact' ? '▤' : '▥'}
+            <span className="sr-only">Changer la densité d'affichage</span>
+          </button>
           <div className="user-chip">
             <div className="avatar">
               {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}

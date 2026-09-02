@@ -4,8 +4,8 @@ import { Field, ErrorAlert } from '../lib.jsx';
 
 const DEMO = [
   ['admin', 'Administrateur — tous les droits'],
-  ['s.martin', 'Réceptionniste — accueil et agenda'],
-  ['a.bernard', 'Dr Bernard — praticien (cardiologie)'],
+  ['s.amrani', 'Réceptionniste — accueil et agenda'],
+  ['a.benali', 'Dr Benali — praticien (cardiologie)'],
   ['c.compta', 'Facturation — factures et caisse'],
 ];
 
@@ -16,8 +16,12 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [health, setHealth] = useState(null);
+  const [brand, setBrand] = useState(null);
 
-  useEffect(() => { api.health().then(setHealth).catch(() => setHealth(null)); }, []);
+  useEffect(() => {
+    api.health().then(setHealth).catch(() => setHealth(null));
+    api.branding().then(setBrand).catch(() => {});
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -38,9 +42,9 @@ export default function Login({ onLogin }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={submit}>
-        <div className="login-logo">C</div>
+        <div className="login-logo" aria-hidden="true">✚</div>
         <h1>CliniRDV</h1>
-        <p className="sub">Clinique Saint-Michel · Gestion des rendez-vous</p>
+        <p className="sub">{brand?.clinic_name || 'Clinique'} · Gestion des rendez-vous</p>
 
         <ErrorAlert error={error} />
 

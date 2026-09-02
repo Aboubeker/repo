@@ -2,14 +2,18 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 
 /* ------------------------------ Formatage ------------------------------ */
-export const fmtDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+export const fmtDate = (d) => d ? new Date(d).toLocaleDateString('fr-DZ') : '—';
 export const fmtTime = (d) => d
-  ? new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—';
+  ? new Date(d).toLocaleTimeString('fr-DZ', { hour: '2-digit', minute: '2-digit' }) : '—';
 export const fmtDateTime = (d) => d ? `${fmtDate(d)} ${fmtTime(d)}` : '—';
 export const fmtLongDate = (d) => d
-  ? new Date(d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '—';
-export const fmtMoney = (n) =>
-  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(Number(n || 0));
+  ? new Date(d).toLocaleDateString('fr-DZ', { weekday: 'long', day: 'numeric', month: 'long' }) : '—';
+/* Monnaie, dates et identifiants : voir locale.js (adaptation Algérie).
+   Réexporté ici pour que les pages existantes en bénéficient sans modification. */
+export { fmtMoney, fmtAmount, fmtPhone, fmtNIN, amountToWords, stampDuty,
+         validateNIN, validatePhone, validateSecuriteSociale,
+         INSURANCE_SCHEMES, WILAYAS, WEEKEND_DAYS, isWeekend, isoDay,
+         startOfWeekDZ, fixedHolidayFor, DAY_NAMES } from './locale.js';
 export const fmtName = (last, first) => `${(last || '').toUpperCase()} ${first || ''}`.trim();
 
 export function age(birthDate) {
@@ -55,9 +59,16 @@ export const INVOICE_STATUS = {
   CREDITED:       { label: 'Avoir émis',  cls: 'purple' },
 };
 
+/* Moyens de paiement effectivement utilisés en clinique algérienne.
+   Les libellés restent adossés aux codes existants en base pour ne pas
+   invalider l'historique de facturation. */
 export const PAYMENT_METHODS = {
-  CASH: 'Espèces', CARD: 'Carte bancaire', CHECK: 'Chèque',
-  TRANSFER: 'Virement', INSURANCE: 'Tiers payant', VOUCHER: 'Bon de prise en charge',
+  CASH:      'Espèces',
+  CARD:      'Carte CIB / Edahabia',
+  CHECK:     'Chèque',
+  TRANSFER:  'Virement / CCP',
+  INSURANCE: 'Tiers payant (CNAS / CASNOS)',
+  VOUCHER:   'Prise en charge / Convention',
 };
 
 export const Badge = ({ status, map = STATUS }) => {
@@ -185,3 +196,117 @@ export function ErrorAlert({ error }) {
 }
 
 export const can = (user, perm) => (user?.permissions || []).includes(perm);
+
+/* ======================================================================
+   Composants ajoutés : en-tête de page, densité, santé système
+   ====================================================================== */
+
+/** En-tête normalisé. Remplace les titres en style inline page par page. */
+export function PageHead({ title, subtitle, crumbs, actions }) {
+  return (
+    <div>
+      {crumbs?.length > 0 && (
+        <nav className="crumbs" aria-label="Fil d'ariane">
+          {crumbs.map((c, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <span aria-hidden="true">›</span>}
+              {c.onClick
+                ? <button onClick={c.onClick}>{c.label}</button>
+                : <span>{c.label}</span>}
+            </React.Fragment>
+          ))}
+        </nav>
+      )}
+      <div className="page-head">
+        <div className="ph-main">
+          <h1>{title}</h1>
+          {subtitle && <div className="ph-sub">{subtitle}</div>}
+        </div>
+        {actions && <div className="ph-actions">{actions}</div>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Densité d'affichage. Sur un écran 1366×768 — la résolution la plus courante
+ * sur les postes de comptoir — le mode compact fait passer un tableau de
+ * 6 à 11 lignes visibles, ce qui évite un défilement permanent.
+ */
+const DENSITY_KEY = 'clinirdv.density';
+
+export function applyStoredDensity() {
+  const d = localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable';
+  document.documentElement.setAttribute('data-density', d);
+  return d;
+}
+
+export function useDensity() {
+  const [density, setDensity] = useState(
+    () => (typeof document !== 'undefined'
+      && document.documentElement.getAttribute('data-density')) || 'comfortable');
+  const toggle = useCallback(() => {
+    setDensity((cur) => {
+      const next = cur === 'compact' ? 'comfortable' : 'compact';
+      document.documentElement.setAttribute('data-density', next);
+      try { localStorage.setItem(DENSITY_KEY, next); } catch { /* mode privé */ }
+      return next;
+    });
+  }, []);
+  return [density, toggle];
+}
+
+/**
+ * Indicateur de santé. `level` vaut 'ok' | 'warn' | 'bad'.
+ * `fix` est l'action corrective : un administrateur non technicien doit
+ * pouvoir agir sans ouvrir un terminal.
+ */
+export function HealthItem({ level = 'ok', title, value, fix }) {
+  return (
+    <div className={`health-item ${level}`}>
+      <span className="hdot" aria-hidden="true" />
+      <div style={{ minWidth: 0 }}>
+        <div className="ht">{title}</div>
+        <div className="hv">{value}</div>
+        {fix && <div className="hfix">{fix}</div>}
+      </div>
+      <span className="sr-only">
+        {level === 'ok' ? 'Normal' : level === 'warn' ? 'Avertissement' : 'Anomalie'}
+      </span>
+    </div>
+  );
+}
+
+/** Bandeau d'action requise, cliquable, en tête de page. */
+export const ActionStrip = ({ icon = '⚠', children, action, danger }) => (
+  <div className={`action-strip ${danger ? 'danger' : ''}`}>
+    <span aria-hidden="true">{icon}</span>
+    <span>{children}</span>
+    <span className="spacer" />
+    {action}
+  </div>
+);
+
+/** Confirmation explicite pour les actes irréversibles (remplace window.confirm). */
+export function ConfirmDialog({ title, message, confirmLabel = 'Confirmer',
+                                danger, onConfirm, onClose, children }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { await onConfirm(); onClose(); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title={title} onClose={onClose} footer={
+      <>
+        <button className="btn" onClick={onClose} disabled={busy}>Annuler</button>
+        <button className={`btn ${danger ? 'danger' : 'primary'}`}
+                onClick={run} disabled={busy}>
+          {busy ? 'En cours…' : confirmLabel}
+        </button>
+      </>
+    }>
+      <p style={{ marginBottom: children ? 12 : 0 }}>{message}</p>
+      {children}
+    </Modal>
+  );
+}

@@ -56,7 +56,7 @@ before(async () => {
   await query(`UPDATE user_account SET failed_attempts = 0, locked_until = NULL,
                  status = 'ACTIVE' WHERE status = 'LOCKED'`);
 
-  for (const u of ['admin', 's.martin', 'a.bernard', 'c.compta']) {
+  for (const u of ['admin', 's.amrani', 'a.benali', 'c.compta']) {
     const r = await fetch(`${base}/api/auth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: u, password: 'Clinique2026!' }),
@@ -127,7 +127,7 @@ describe('Santé et authentification', () => {
 describe('Contrôle d\'accès par rôle', () => {
 
   test('la réceptionniste ne peut pas gérer les utilisateurs', async () => {
-    const r = await api('/api/admin/users', { as: 's.martin' });
+    const r = await api('/api/admin/users', { as: 's.amrani' });
     assert.equal(r.status, 403);
     assert.equal((await r.json()).error.code, 'FORBIDDEN');
   });
@@ -139,16 +139,16 @@ describe('Contrôle d\'accès par rôle', () => {
   });
 
   test('la réceptionniste accède bien à l\'agenda', async () => {
-    const r = await api('/api/appointments', { as: 's.martin' });
+    const r = await api('/api/appointments', { as: 's.amrani' });
     assert.equal(r.status, 200);
   });
 
   test('le praticien peut rédiger un compte rendu, pas la réceptionniste', async () => {
     const a = await one(`SELECT id FROM appointment WHERE status = 'COMPLETED' LIMIT 1`);
-    const r1 = await api(`/api/appointments/${a.id}/encounter`, { as: 's.martin',
+    const r1 = await api(`/api/appointments/${a.id}/encounter`, { as: 's.amrani',
       method: 'PUT', body: { observations: 'test' } });
     assert.equal(r1.status, 403);
-    const r2 = await api(`/api/appointments/${a.id}/encounter`, { as: 'a.bernard',
+    const r2 = await api(`/api/appointments/${a.id}/encounter`, { as: 'a.benali',
       method: 'PUT', body: { observations: 'Examen sans particularité.' } });
     assert.equal(r2.status, 200);
   });
@@ -238,10 +238,13 @@ describe('Rendez-vous — règles de planification', () => {
       `&appointmentTypeId=${type.id}&from=${from}&to=${to}`)).json();
     for (const s of d.slots.slice(0, 40)) {
       const start = new Date(s.start);
-      const dow = ((start.getDay() + 6) % 7) + 1;
-      assert.ok(dow >= 1 && dow <= 5, 'aucun créneau le week-end');
+      const dow = ((start.getDay() + 6) % 7) + 1;   // 1 = lundi … 7 = dimanche
+      // Week-end algérien : vendredi (5) et samedi (6) sont chômés,
+      // le dimanche (7) est au contraire le premier jour ouvré.
+      assert.ok(dow !== 5 && dow !== 6,
+        `créneau proposé un jour de week-end (jour ISO ${dow})`);
       const h = start.getHours();
-      assert.ok((h >= 8 && h < 12) || (h >= 14 && h < 18),
+      assert.ok((h >= 8 && h < 12) || (h >= 13 && h < 17),
         `créneau hors plage : ${start.toISOString()}`);
     }
   });
@@ -598,7 +601,7 @@ describe('Rapports', () => {
   });
 
   test('le journal d\'audit est réservé aux administrateurs', async () => {
-    assert.equal((await api('/api/audit', { as: 's.martin' })).status, 403);
+    assert.equal((await api('/api/audit', { as: 's.amrani' })).status, 403);
     assert.equal((await api('/api/audit', { as: 'admin' })).status, 200);
   });
 });

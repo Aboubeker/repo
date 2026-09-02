@@ -164,4 +164,5 @@ export const api = {
   notifications: (p) => request(`/api/notifications${qs(p)}`),
   callList: (date) => request(`/api/notifications/call-list${qs({ date })}`),
   health: () => request('/api/health'),
+  branding: () => request('/api/branding'),
 };

@@ -127,12 +127,15 @@ try {
 
   const tariffs = {};
   for (const [code, label, amount, spec] of [
-    ['CS', 'Consultation simple', 25.00, 'GENE'],
-    ['CSC', 'Consultation cardiologie', 50.00, 'CARDIO'],
-    ['ECG', 'Électrocardiogramme', 35.00, 'CARDIO'],
-    ['CSD', 'Consultation dermatologie', 45.00, 'DERMA'],
-    ['SKINE', 'Séance de kinésithérapie', 22.00, 'KINE'],
-    ['CSP', 'Consultation pédiatrique', 30.00, 'PEDIA'],
+    /* Tarifs en dinars, ordres de grandeur du secteur privé algérois.
+       Les lettres-clés de la nomenclature CNAS (C, CS, K, B…) sont portées
+       par le code : elles servent aux feuilles de soins et au conventionnement. */
+    ['C', 'Consultation médecine générale', 1500, 'GENE'],
+    ['CS-CARDIO', 'Consultation cardiologie', 3000, 'CARDIO'],
+    ['ECG', 'Électrocardiogramme', 1800, 'CARDIO'],
+    ['CS-DERMA', 'Consultation dermatologie', 2500, 'DERMA'],
+    ['AMM', 'Séance de kinésithérapie', 1200, 'KINE'],
+    ['CS-PEDIA', 'Consultation pédiatrique', 2000, 'PEDIA'],
   ]) {
     tariffs[code] = (await first(
       `INSERT INTO tariff (code,label,amount,specialty_id) VALUES ($1,$2,$3,$4) RETURNING id`,
@@ -141,13 +144,13 @@ try {
 
   const types = {};
   for (const [code, label, spec, dur, before, after, tariff, color] of [
-    ['CS-GEN', 'Consultation générale', 'GENE', 20, 0, 5, 'CS', '#2563eb'],
-    ['CS-CARDIO', 'Consultation cardiologie', 'CARDIO', 30, 0, 10, 'CSC', '#dc2626'],
-    ['ECG', 'Électrocardiogramme', 'CARDIO', 20, 5, 10, 'ECG', '#f97316'],
-    ['CS-DERMA', 'Consultation dermatologie', 'DERMA', 20, 0, 5, 'CSD', '#7c3aed'],
-    ['KINE', 'Séance de kinésithérapie', 'KINE', 30, 0, 0, 'SKINE', '#059669'],
-    ['CS-PEDIA', 'Consultation pédiatrique', 'PEDIA', 25, 0, 5, 'CSP', '#ea580c'],
-    ['URGENCE', 'Consultation urgente', 'GENE', 15, 0, 0, 'CS', '#b91c1c'],
+    ['CS-GEN', 'Consultation générale', 'GENE', 20, 0, 5, 'C', '#0f766e'],
+    ['CS-CARDIO', 'Consultation cardiologie', 'CARDIO', 30, 0, 10, 'CS-CARDIO', '#b91c1c'],
+    ['ECG', 'Électrocardiogramme', 'CARDIO', 20, 5, 10, 'ECG', '#ea580c'],
+    ['CS-DERMA', 'Consultation dermatologie', 'DERMA', 20, 0, 5, 'CS-DERMA', '#6d28d9'],
+    ['KINE', 'Séance de kinésithérapie', 'KINE', 30, 0, 0, 'AMM', '#15803d'],
+    ['CS-PEDIA', 'Consultation pédiatrique', 'PEDIA', 25, 0, 5, 'CS-PEDIA', '#b45309'],
+    ['URGENCE', 'Consultation urgente', 'GENE', 15, 0, 0, 'C', '#991b1b'],
   ]) {
     types[code] = (await first(
       `INSERT INTO appointment_type (code,label,specialty_id,default_duration_minutes,
@@ -159,27 +162,31 @@ try {
   /* ------------------------------ Praticiens ---------------------------- */
   const practitioners = [];
   for (const [code, last, first_, spec, room, slot, color] of [
-    ['DR-001', 'BERNARD', 'Alice', 'CARDIO', 'S12', 30, '#dc2626'],
-    ['DR-002', 'LEROY', 'Marc', 'GENE', 'S01', 20, '#2563eb'],
-    ['DR-003', 'AZIZ', 'Nadia', 'DERMA', 'S02', 20, '#7c3aed'],
-    ['DR-004', 'MOREAU', 'Julien', 'KINE', 'S07', 30, '#059669'],
-    ['DR-005', 'PETIT', 'Sophie', 'PEDIA', 'S03', 25, '#ea580c'],
+    ['DR-001', 'BENALI', 'Amine', 'CARDIO', 'S12', 30, '#b91c1c'],
+    ['DR-002', 'HAMDANI', 'Yacine', 'GENE', 'S01', 20, '#0f766e'],
+    ['DR-003', 'BOUDIAF', 'Nadia', 'DERMA', 'S02', 20, '#6d28d9'],
+    ['DR-004', 'MEKKI', 'Karim', 'KINE', 'S07', 30, '#15803d'],
+    ['DR-005', 'ZERROUKI', 'Samia', 'PEDIA', 'S03', 25, '#b45309'],
   ]) {
     const p = await first(
       `INSERT INTO practitioner (code,last_name,first_name,title,office_room_id,
          default_slot_minutes,color,employment_type,registration_number,phone)
        VALUES ($1,$2,$3,'Dr',$4,$5,$6,'SALARIED',$7,$8) RETURNING *`,
       [code, last, first_, rooms[room], slot, color,
-       '10' + code.slice(-3) + '00000', '01 23 45 67 ' + code.slice(-2)]);
+       // Numéro d'inscription au Conseil national de l'ordre des médecins
+       '16' + code.slice(-3) + '0', '0550' + code.slice(-3) + '000'.slice(0, 3)]);
     await q(`INSERT INTO practitioner_specialty (practitioner_id,specialty_id,is_primary)
              VALUES ($1,$2,true)`, [p.id, specialties[spec]]);
-    // Disponibilités : lundi–vendredi, matin et après-midi
-    for (const wd of [1, 2, 3, 4, 5]) {
+    // Disponibilités : dimanche→jeudi (semaine ouvrable algérienne, le
+    // week-end légal étant vendredi et samedi). Codes ISO : 7 = dimanche.
+    // Horaires 08:00–12:00 et 13:00–16:30, la coupure méridienne étant plus
+    // courte qu'en Europe.
+    for (const wd of [7, 1, 2, 3, 4]) {
       await q(`INSERT INTO availability_rule (practitioner_id,weekday,start_time,end_time,room_id,slot_minutes)
                VALUES ($1,$2,'08:00','12:00',$3,$4)`, [p.id, wd, rooms[room], slot]);
-      if (wd !== 3) {  // mercredi après-midi non travaillé
+      if (wd !== 4) {  // jeudi après-midi non travaillé (veille de week-end)
         await q(`INSERT INTO availability_rule (practitioner_id,weekday,start_time,end_time,room_id,slot_minutes)
-                 VALUES ($1,$2,'14:00','18:00',$3,$4)`, [p.id, wd, rooms[room], slot]);
+                 VALUES ($1,$2,'13:00','16:30',$3,$4)`, [p.id, wd, rooms[room], slot]);
       }
     }
     practitioners.push({ ...p, specCode: spec });
@@ -188,12 +195,12 @@ try {
   /* ----------------------------- Utilisateurs --------------------------- */
   const users = [
     ['admin', 'Administrateur Système', ['ADMIN'], null],
-    ['s.martin', 'Sophie MARTIN', ['RECEPTION'], null],
-    ['l.dubois', 'Laura DUBOIS', ['RECEPTION'], null],
-    ['a.bernard', 'Dr Alice BERNARD', ['PRACTITIONER'], practitioners[0].id],
-    ['m.leroy', 'Dr Marc LEROY', ['PRACTITIONER'], practitioners[1].id],
-    ['n.aziz', 'Dr Nadia AZIZ', ['PRACTITIONER'], practitioners[2].id],
-    ['c.compta', 'Claire COMPTABLE', ['BILLING'], null],
+    ['s.amrani', 'Samira AMRANI', ['RECEPTION'], null],
+    ['l.brahimi', 'Lynda BRAHIMI', ['RECEPTION'], null],
+    ['a.benali', 'Dr Amine BENALI', ['PRACTITIONER'], practitioners[0].id],
+    ['y.hamdani', 'Dr Yacine HAMDANI', ['PRACTITIONER'], practitioners[1].id],
+    ['n.boudiaf', 'Dr Nadia BOUDIAF', ['PRACTITIONER'], practitioners[2].id],
+    ['c.compta', 'Farid KHELIFI', ['BILLING'], null],
   ];
   const pwHash = hashPassword('Clinique2026!');
   for (const [username, fullName, roles, practId] of users) {
@@ -208,17 +215,20 @@ try {
 
   /* ------------------------------- Patients ----------------------------- */
   const NAMES = [
-    ['DUPONT','Marie','F','1979-03-12'], ['NKOSI','Jean','M','1985-07-22'],
-    ['SOW','Fatou','F','1992-11-03'], ['MARTIN','Luc','M','1968-01-30'],
-    ['BEN ALI','Samir','M','1974-05-18'], ['KONE','Awa','F','1990-09-09'],
-    ['DIALLO','Mamadou','M','1955-12-25'], ['TRAORE','Kadi','F','2001-04-14'],
-    ['BERGER','Thomas','M','1988-08-08'], ['LEROUX','Camille','F','1995-02-27'],
-    ['GARCIA','Elena','F','1962-06-15'], ['NGUYEN','Minh','M','1998-10-05'],
-    ['ROUSSEAU','Pierre','M','1971-03-21'], ['HADDAD','Leila','F','1983-12-11'],
-    ['SCHMIDT','Anna','F','1959-07-07'], ['OKONKWO','David','M','1993-05-30'],
-    ['FERRARI','Marco','M','1977-09-19'], ['DUBOIS','Julie','F','2005-01-08'],
-    ['MERCIER','Paul','M','1948-11-23'], ['LAMBERT','Chloé','F','2012-06-02'],
+    ['BENCHIKH','Meriem','F','1979-03-12'], ['AIT AHMED','Rachid','M','1985-07-22'],
+    ['SAADI','Fatma','F','1992-11-03'], ['MEZIANE','Lounis','M','1968-01-30'],
+    ['BEN ALI','Samir','M','1974-05-18'], ['CHERIF','Assia','F','1990-09-09'],
+    ['DJEBBAR','Mohamed','M','1955-12-25'], ['LOUNIS','Kahina','F','2001-04-14'],
+    ['BOUAZIZ','Tarek','M','1988-08-08'], ['HAMIDI','Amel','F','1995-02-27'],
+    ['GHERBI','Yamina','F','1962-06-15'], ['SLIMANI','Bilal','M','1998-10-05'],
+    ['ZIANI','Abdelkader','M','1971-03-21'], ['HADDAD','Leila','F','1983-12-11'],
+    ['TALEB','Nawel','F','1959-07-07'], ['OUKACI','Idir','M','1993-05-30'],
+    ['FERHAT','Sofiane','M','1977-09-19'], ['BELKACEM','Ines','F','2005-01-08'],
+    ['MOKRANI','Ahmed','M','1948-11-23'], ['REZAIG','Lina','F','2012-06-02'],
   ];
+  // Communes d'Alger, pour des adresses plausibles.
+  const COMMUNES = ['Bab Ezzouar', 'Hydra', 'Kouba', 'Birkhadem', 'El Biar',
+    'Bir Mourad Raïs', 'Chéraga', 'Draria', 'Rouiba', 'Zéralda'];
   const patients = [];
   for (const [i, [last, first_, sex, birth]] of NAMES.entries()) {
     const p = await first(
@@ -227,13 +237,24 @@ try {
        VALUES ('P-2026-' || lpad(nextval('patient_mrn_seq')::text,6,'0'),
                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [last, first_, sex, birth,
-       `06 ${10 + i} ${20 + i} ${30 + i} ${40 + i}`.slice(0, 14),
+       // Mobiles algériens : 05/06/07 suivis de huit chiffres.
+       `0${5 + (i % 3)}${String(10000000 + i * 111111).slice(0, 8)}`.slice(0, 10),
        `${first_.toLowerCase()}.${last.toLowerCase().replace(/\s/g,'')}@exemple.local`,
-       `${i + 1} rue des Lilas`, `690${String(i % 10).padStart(2, '0')}`, 'LYON',
+       `Cité ${i + 1}, ${COMMUNES[i % COMMUNES.length]}`,
+       `16${String(i % 10).padStart(3, '0')}`, COMMUNES[i % COMMUNES.length],
        ['A+','O+','B+','AB+','O-'][i % 5]]);
     patients.push(p);
-    await q(`INSERT INTO patient_insurance (patient_id, scheme, insurer_name, coverage_rate, is_primary)
-             VALUES ($1,'Régime obligatoire','CPAM',70,true)`, [p.id]);
+    // Couverture sociale : CNAS pour les salariés, CASNOS pour les
+    // indépendants ; taux de droit commun 80 %. Quelques patients sont sans
+    // couverture (consultations réglées intégralement au comptoir).
+    if (i % 6 !== 0) {
+      const scheme = i % 3 === 0 ? 'CASNOS' : 'CNAS';
+      await q(`INSERT INTO patient_insurance
+                 (patient_id, scheme, insurer_name, policy_number, coverage_rate, is_primary)
+               VALUES ($1,$2,$3,$4,80,true)`,
+        [p.id, scheme, scheme === 'CNAS' ? 'CNAS Alger' : 'CASNOS Alger',
+         String(9900000000 + i * 137)]);
+    }
     for (const kind of ['DATA_PROCESSING','SMS_REMINDER','EMAIL_REMINDER']) {
       await q(`INSERT INTO consent (patient_id, kind, granted) VALUES ($1,$2,$3)`,
         [p.id, kind, i % 7 !== 0]);   // quelques patients sans consentement
@@ -262,8 +283,8 @@ try {
 
   for (let dayOffset = -21; dayOffset <= 21; dayOffset++) {
     const day = new Date(today.getTime() + dayOffset * 864e5);
-    const dow = ((day.getDay() + 6) % 7) + 1;
-    if (dow > 5) continue;                                  // week-end
+    const dow = ((day.getDay() + 6) % 7) + 1;   // 1 = lundi … 7 = dimanche
+    if (dow === 5 || dow === 6) continue;       // week-end algérien : ven. + sam.
 
     for (const pr of practitioners) {
       const typeId = types[TYPE_BY_SPEC[pr.specCode]];
@@ -271,8 +292,8 @@ try {
       const slotsPerHalfDay = Math.floor(240 / dur);
       // taux de remplissage variable pour des statistiques réalistes
       const fill = 0.45 + ((dayOffset + pr.code.charCodeAt(4)) % 5) * 0.11;
-      // matin 08:00–12:00 et après-midi 14:00–18:00 (sauf mercredi après-midi)
-      const halfDays = dow === 3 ? [8] : [8, 14];
+      // matin 08:00–12:00 et après-midi 13:00–16:30 (sauf jeudi après-midi)
+      const halfDays = dow === 4 ? [8] : [8, 13];
 
       for (const baseHour of halfDays)
       for (let s = 0; s < slotsPerHalfDay; s++) {
@@ -367,8 +388,11 @@ try {
     if (i % 10 !== 0) {   // 90 % encaissées
       const partial = i % 13 === 0;
       await q(`INSERT INTO payment (invoice_id, method, amount, received_by)
-               VALUES ($1,$2,$3,(SELECT id FROM user_account WHERE username='s.martin'))`,
-        [inv.id, ['CASH','CARD','CHECK'][i % 3], partial ? a.amount / 2 : a.amount]);
+               VALUES ($1,$2,$3,(SELECT id FROM user_account WHERE username='s.amrani'))`,
+        // Répartition réaliste : les espèces restent très majoritaires au
+        // comptoir, la carte CIB progresse, le chèque est marginal.
+        [inv.id, ['CASH','CASH','CASH','CARD','CASH','CASH','TRANSFER'][i % 7],
+         partial ? a.amount / 2 : a.amount]);
       paid++;
     }
   }
@@ -382,8 +406,22 @@ try {
      new Date(new Date(nextFriday).setHours(18, 0, 0, 0))]).catch(() => {});
 
   for (const [key, value, category, desc] of [
-    ['clinic.name', `"${process.env.CLINIC_NAME || 'Clinique Saint-Michel'}"`, 'Général', 'Nom de l\'établissement'],
-    ['clinic.timezone', '"Europe/Paris"', 'Général', 'Fuseau horaire'],
+    ['clinic.name', `"${process.env.CLINIC_NAME || 'Clinique El Amel'}"`, 'Général', 'Nom de l\'établissement'],
+    ['clinic.timezone', '"Africa/Algiers"', 'Général', 'Fuseau horaire'],
+    ['clinic.city', '"Alger"', 'Général', 'Commune'],
+    ['clinic.wilaya', '"16 Alger"', 'Général', 'Wilaya'],
+    ['clinic.phone', '"021 00 00 00"', 'Général', 'Téléphone de l\'accueil'],
+    ['clinic.agrement', '""', 'Général', 'N° d\'agrément sanitaire (DSP de wilaya)'],
+    ['clinic.nif', '""', 'Facturation', 'Numéro d\'identification fiscale (NIF)'],
+    ['clinic.rc', '""', 'Facturation', 'Registre du commerce'],
+    ['clinic.article_imposition', '""', 'Facturation', 'Article d\'imposition'],
+    // Le droit de timbre (art. 100 du code du timbre) frappe les règlements
+    // en espèces : 1 DA par tranche de 100 DA, plancher 5 DA, plafond 2 500 DA.
+    ['billing.currency', '"DZD"', 'Facturation', 'Monnaie'],
+    ['billing.stamp_duty_enabled', 'true', 'Facturation',
+     'Appliquer le droit de timbre sur les règlements en espèces'],
+    // Week-end légal : vendredi et samedi (jours ISO 5 et 6).
+    ['clinic.weekend_days', '[5,6]', 'Général', 'Jours de week-end'],
     ['scheduling.min_notice_hours', '0', 'Agenda', 'Délai minimal de prise de rendez-vous'],
     ['scheduling.max_horizon_days', '365', 'Agenda', 'Horizon maximal de réservation'],
     ['scheduling.no_show_threshold', '3', 'Agenda', 'Nombre d\'absences déclenchant une alerte'],
@@ -427,8 +465,8 @@ try {
   Comptes de démonstration — mot de passe : Clinique2026!
   ┌──────────────┬─────────────────────────────────┐
   │ admin        │ Administrateur (tous droits)    │
-  │ s.martin     │ Réceptionniste                  │
-  │ a.bernard    │ Praticien (Dr Bernard, cardio)  │
+  │ s.amrani     │ Réceptionniste                  │
+  │ a.benali     │ Praticien (Dr Benali, cardio)   │
   │ c.compta     │ Facturation                     │
   └──────────────┴─────────────────────────────────┘
 `);

@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Spinner, Empty, Modal, Field, ErrorAlert, Stat,
+import { Spinner, Empty, Modal, Field, ErrorAlert, Stat, PageHead,
+         HealthItem, ActionStrip, ConfirmDialog,
          fmtDate, fmtDateTime, can, useToast } from '../lib.jsx';
 
 const TABS = [
+  ['overview', 'Vue d\'ensemble', 'admin.settings'],
   ['users', 'Utilisateurs', 'admin.users'],
   ['settings', 'Paramètres', 'admin.settings'],
   ['backups', 'Sauvegardes', 'admin.backup'],
@@ -23,6 +25,7 @@ export default function Admin({ user }) {
                   onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
+      {tab === 'overview' && <Overview go={setTab} />}
       {tab === 'users'    && <Users />}
       {tab === 'settings' && <Settings />}
       {tab === 'backups'  && <Backups />}
@@ -484,5 +487,175 @@ function System() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------ Vue d'ensemble ---------------------------- */
+/*
+ * Écran d'accueil de l'administration.
+ *
+ * Le constat de départ : l'administrateur d'une clinique n'est pas
+ * informaticien. C'est souvent le gérant ou un responsable administratif. Les
+ * informations dont il a besoin — « la sauvegarde d'hier a-t-elle réussi ? »,
+ * « reste-t-il de la place sur le disque ? », « qui a annulé cette facture ? »
+ * — étaient dispersées sur quatre onglets et exprimées en termes techniques.
+ *
+ * Cette page répond à une seule question : « y a-t-il quelque chose à faire
+ * aujourd'hui ? ». Chaque anomalie est accompagnée du geste correctif, à
+ * portée de clic, sans terminal ni ligne de commande.
+ */
+function Overview({ go }) {
+  const [d, setD] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const load = () => Promise.all([
+    api.system(),
+    api.backups().catch(() => ({ items: [] })),
+    api.users().catch(() => ({ items: [] })),
+  ]).then(([sys, backups, users]) => setD({ sys, backups, users })).catch(setError);
+
+  useEffect(() => { load(); }, []);
+
+  const runBackup = async () => {
+    setBusy(true);
+    try {
+      await api.runBackup();
+      toast.success('Sauvegarde terminée.');
+      await load();
+    } catch (e) { toast.error(e.message); }
+    finally { setBusy(false); }
+  };
+
+  if (error) return <ErrorAlert error={error} />;
+  if (!d) return <Spinner />;
+
+  const { sys, backups, users } = d;
+  const last = backups.items?.[0] || sys.lastBackup;
+
+  /* --- Évaluation des indicateurs ---
+     Les seuils sont volontairement conservateurs : mieux vaut une alerte de
+     trop qu'une base perdue. */
+  const now = Date.now();
+  const backupAgeH = last?.started_at
+    ? (now - new Date(last.started_at).getTime()) / 3.6e6 : Infinity;
+  const backupLevel = !last || backupAgeH > 48 ? 'bad'
+    : backupAgeH > 26 ? 'warn' : 'ok';
+
+  const lockedUsers = (users.items || []).filter((u) => u.status === 'LOCKED');
+  const staleUsers = (users.items || []).filter((u) =>
+    u.status === 'ACTIVE' && u.last_login_at &&
+    (now - new Date(u.last_login_at).getTime()) > 90 * 864e5);
+  const mustChange = (users.items || []).filter((u) => u.must_change_password);
+
+  const problems = [];
+  if (backupLevel === 'bad') {
+    problems.push({
+      key: 'backup',
+      text: last
+        ? `La dernière sauvegarde remonte à ${Math.floor(backupAgeH / 24)} jour(s).`
+        : 'Aucune sauvegarde n\'a jamais été effectuée.',
+      action: <button className="btn danger sm" onClick={runBackup} disabled={busy}>
+                {busy ? 'Sauvegarde…' : 'Sauvegarder maintenant'}</button>,
+      danger: true,
+    });
+  }
+  if (staleUsers.length > 0) {
+    problems.push({
+      key: 'stale',
+      text: `${staleUsers.length} compte(s) sans connexion depuis plus de 90 jours.`,
+      action: <button className="btn sm" onClick={() => go('users')}>Examiner</button>,
+    });
+  }
+  if (mustChange.length > 0) {
+    problems.push({
+      key: 'pwd',
+      text: `${mustChange.length} compte(s) avec un mot de passe provisoire non changé.`,
+      action: <button className="btn sm" onClick={() => go('users')}>Voir la liste</button>,
+    });
+  }
+
+  return (
+    <>
+      <PageHead
+        title="Vue d'ensemble"
+        subtitle="État de l'installation et actions à entreprendre."
+        actions={
+          <>
+            <button className="btn sm" onClick={load}>Actualiser</button>
+            <button className="btn primary sm" onClick={runBackup} disabled={busy}>
+              {busy ? 'Sauvegarde en cours…' : 'Sauvegarder la base'}
+            </button>
+          </>
+        }
+      />
+
+      {problems.length === 0 ? (
+        <div className="alert success">
+          <span>✓</span>
+          <div>Aucune action requise. La dernière sauvegarde date
+            de {fmtDateTime(last?.started_at)}.</div>
+        </div>
+      ) : problems.map((p) => (
+        <ActionStrip key={p.key} danger={p.danger} action={p.action}>{p.text}</ActionStrip>
+      ))}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3>État du système</h3></div>
+        <div className="card-body">
+          <div className="health-grid">
+            <HealthItem
+              level={sys.database?.size ? 'ok' : 'warn'}
+              title="Base de données"
+              value={`PostgreSQL · ${sys.database?.size || 'taille inconnue'}`}
+            />
+            <HealthItem
+              level={backupLevel}
+              title="Sauvegarde"
+              value={last
+                ? `${fmtDateTime(last.started_at)} · ${
+                    ((last.size_bytes || 0) / 1048576).toFixed(1)} Mo`
+                : 'jamais exécutée'}
+              fix={backupLevel !== 'ok' &&
+                <button className="btn sm" onClick={runBackup} disabled={busy}>
+                  Lancer une sauvegarde</button>}
+            />
+            <HealthItem
+              level="ok"
+              title="Disponibilité du service"
+              value={`${Math.floor(sys.uptimeSeconds / 3600)} h ${
+                Math.floor((sys.uptimeSeconds % 3600) / 60)} min sans interruption`}
+            />
+            <HealthItem
+              level={lockedUsers.length > 0 ? 'warn' : 'ok'}
+              title="Comptes utilisateurs"
+              value={`${(users.items || []).length} compte(s)${
+                lockedUsers.length ? ` · ${lockedUsers.length} verrouillé(s)` : ''}`}
+              fix={lockedUsers.length > 0 &&
+                <button className="btn sm" onClick={() => go('users')}>Gérer</button>}
+            />
+            <HealthItem
+              level="ok"
+              title="Confidentialité"
+              value="Aucune connexion sortante · données hébergées localement"
+            />
+            <HealthItem
+              level="ok"
+              title="Journal d'audit"
+              value={`${sys.counts?.audit_entries ?? 0} entrées tracées`}
+              fix={<button className="btn sm" onClick={() => go('audit')}>Consulter</button>}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid c4">
+        <Stat label="Patients" value={sys.counts?.patients ?? 0} accent="teal" />
+        <Stat label="Praticiens" value={sys.counts?.practitioners ?? 0} accent="purple" />
+        <Stat label="Rendez-vous" value={sys.counts?.appointments ?? 0} accent="green" />
+        <Stat label="Factures" value={sys.counts?.invoices ?? 0} accent="orange" />
+      </div>
+    </>
   );
 }
