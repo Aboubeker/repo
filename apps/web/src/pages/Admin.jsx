@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Spinner, Empty, Modal, Field, ErrorAlert, Stat, PageHead,
          HealthItem, ActionStrip, ConfirmDialog,
-         fmtDate, fmtDateTime, can, useToast, applyTheme } from '../lib.jsx';
+         fmtDate, fmtDateTime, fmtMoney, can, useToast, applyTheme } from '../lib.jsx';
 
 const TABS = [
   ['overview', 'Vue d\'ensemble', 'admin.settings'],
   ['users', 'Utilisateurs', 'admin.users'],
   ['roles', 'Rôles et permissions', 'admin.roles'],
   ['theme', 'Apparence', 'admin.theme'],
+  ['catalogue', 'Actes et tarifs', 'admin.settings'],
   ['settings', 'Paramètres', 'admin.settings'],
   ['backups', 'Sauvegardes', 'admin.backup'],
   ['audit', 'Journal d\'audit', 'audit.read'],
@@ -31,6 +32,7 @@ export default function Admin({ user }) {
       {tab === 'users'    && <Users />}
       {tab === 'roles'    && <Roles />}
       {tab === 'theme'    && <Appearance />}
+      {tab === 'catalogue' && <Catalogue />}
       {tab === 'settings' && <Settings />}
       {tab === 'backups'  && <Backups />}
       {tab === 'audit'    && <Audit />}
@@ -734,6 +736,439 @@ function ThemePreview({ theme }) {
                        padding: '2px 10px', justifySelf: 'start' }}>Confirmé</span>
       </div>
     </div>
+  );
+}
+
+/* --------------------------- Actes et tarifs ----------------------------- */
+
+/**
+ * Catalogue des actes : ce que dure un rendez-vous et ce qu'il coûte.
+ *
+ * Deux tableaux plutôt qu'un seul : un tarif sert souvent plusieurs formats
+ * de rendez-vous, et l'on ajuste un prix bien plus souvent qu'une durée. Les
+ * fusionner obligerait à ressaisir le même montant à chaque ligne, avec la
+ * dérive que cela finit toujours par produire.
+ */
+function Catalogue() {
+  const [d, setD] = useState(null);
+  const [error, setError] = useState(null);
+  const [typeForm, setTypeForm] = useState(null);
+  const [tariffForm, setTariffForm] = useState(null);
+  const [archiving, setArchiving] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const toast = useToast();
+
+  const load = () => { api.catalogue().then(setD).catch(setError); };
+  useEffect(load, []);
+
+  const archive = async () => {
+    const { kind, row } = archiving;
+    try {
+      await (kind === 'tariff' ? api.archiveTariff(row.id) : api.archiveAppointmentType(row.id));
+      toast.success('Retiré du catalogue.');
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const restore = async (kind, row) => {
+    try {
+      await (kind === 'tariff' ? api.restoreTariff(row.id) : api.restoreAppointmentType(row.id));
+      toast.success('Réactivé.');
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  if (error) return <ErrorAlert error={error} />;
+  if (!d) return <Spinner />;
+
+  const types = d.types.filter((t) => showArchived || t.is_active);
+  const tariffs = d.tariffs.filter((t) => showArchived || t.is_active);
+
+  return (
+    <>
+      <div className="alert info" style={{ marginBottom: 14 }}>
+        <span>ⓘ</span>
+        <div>
+          Le <strong>type de rendez-vous</strong> fixe la durée réservée dans
+          l'agenda ; le <strong>tarif</strong> fixe le montant porté sur la
+          facture. Chaque type désigne le tarif appliqué par défaut, que l'on
+          peut toujours corriger au moment de facturer.
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <label className="check">
+          <input type="checkbox" checked={showArchived}
+                 onChange={(e) => setShowArchived(e.target.checked)} />
+          Afficher les éléments retirés
+        </label>
+      </div>
+
+      {/* ------------------------ Types de rendez-vous ------------------- */}
+      <div className="card">
+        <div className="card-head">
+          <h3>Types de rendez-vous</h3>
+          <div className="spacer" />
+          <button className="btn primary sm" onClick={() => setTypeForm({})}>
+            + Nouveau type</button>
+        </div>
+        <div className="card-body tight">
+          {types.length === 0 ? <Empty text="Aucun type de rendez-vous." /> : (
+            <table>
+              <thead><tr>
+                <th>Acte</th><th className="num">Durée</th><th className="num">Battement</th>
+                <th className="num">Créneau total</th><th>Tarif appliqué</th>
+                <th className="num">RDV</th><th className="num">Actions</th>
+              </tr></thead>
+              <tbody>
+                {types.map((t) => (
+                  <tr key={t.id} style={t.is_active ? undefined : { opacity: .55 }}>
+                    <td>
+                      <span style={{ display: 'inline-block', width: 9, height: 9,
+                                     borderRadius: 2, background: t.color,
+                                     marginRight: 7 }} />
+                      <strong>{t.label}</strong>
+                      <div className="muted small">{t.code}
+                        {t.specialty_label && ` · ${t.specialty_label}`}
+                        {t.requires_room && ' · salle requise'}</div>
+                    </td>
+                    <td className="num"><strong>{t.default_duration_minutes} min</strong></td>
+                    <td className="num muted">
+                      {t.buffer_before_minutes > 0 && `${t.buffer_before_minutes} av. `}
+                      {t.buffer_after_minutes > 0 ? `${t.buffer_after_minutes} ap.` : ''}
+                      {!t.buffer_before_minutes && !t.buffer_after_minutes && '—'}
+                    </td>
+                    {/* Ce que le créneau occupe réellement dans l'agenda :
+                        c'est cette valeur qui détermine le nombre de patients
+                        possibles dans une journée, pas la durée seule. */}
+                    <td className="num muted">
+                      {t.default_duration_minutes + t.buffer_before_minutes
+                        + t.buffer_after_minutes} min</td>
+                    <td>
+                      {t.tariff_code
+                        ? <><strong>{fmtMoney(t.tariff_amount)}</strong>
+                            <div className="muted small">{t.tariff_code}</div></>
+                        : <span className="badge orange">aucun tarif</span>}
+                    </td>
+                    <td className="num muted small">{t.appointment_count}</td>
+                    <td className="num nowrap">
+                      {t.is_active ? (
+                        <>
+                          <button className="btn sm" onClick={() => setTypeForm({ row: t })}>
+                            Modifier</button>
+                          <button className="btn ghost sm danger"
+                                  onClick={() => setArchiving({ kind: 'type', row: t })}>
+                            Retirer</button>
+                        </>
+                      ) : (
+                        <button className="btn sm" onClick={() => restore('type', t)}>
+                          Réactiver</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* ------------------------------ Tarifs --------------------------- */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="card-head">
+          <h3>Tarifs</h3>
+          <div className="spacer" />
+          <button className="btn primary sm" onClick={() => setTariffForm({})}>
+            + Nouveau tarif</button>
+        </div>
+        <div className="card-body tight">
+          {tariffs.length === 0 ? <Empty text="Aucun tarif." /> : (
+            <table>
+              <thead><tr>
+                <th>Code</th><th>Libellé</th><th className="num">Montant</th>
+                <th className="num">TVA</th><th>Spécialité</th>
+                <th className="num">Utilisé par</th><th className="num">Actions</th>
+              </tr></thead>
+              <tbody>
+                {tariffs.map((t) => (
+                  <tr key={t.id} style={t.is_active ? undefined : { opacity: .55 }}>
+                    <td><strong>{t.code}</strong></td>
+                    <td>{t.label}</td>
+                    <td className="num"><strong>{fmtMoney(t.amount)}</strong></td>
+                    <td className="num muted">{Number(t.vat_rate) > 0
+                      ? `${Number(t.vat_rate)} %` : '—'}</td>
+                    <td className="muted small">{t.specialty_label || '—'}</td>
+                    <td className="num muted small">
+                      {t.used_by_types} type(s)
+                      {t.used_by_lines > 0 &&
+                        <div>{t.used_by_lines} ligne(s) de facture</div>}
+                    </td>
+                    <td className="num nowrap">
+                      {t.is_active ? (
+                        <>
+                          <button className="btn sm" onClick={() => setTariffForm({ row: t })}>
+                            Modifier</button>
+                          <button className="btn ghost sm danger"
+                                  onClick={() => setArchiving({ kind: 'tariff', row: t })}>
+                            Retirer</button>
+                        </>
+                      ) : (
+                        <button className="btn sm" onClick={() => restore('tariff', t)}>
+                          Réactiver</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {typeForm && <AppointmentTypeForm row={typeForm.row} tariffs={d.tariffs}
+        specialties={d.specialties} onClose={() => setTypeForm(null)}
+        onDone={() => { setTypeForm(null); load(); }} />}
+
+      {tariffForm && <TariffForm row={tariffForm.row} specialties={d.specialties}
+        onClose={() => setTariffForm(null)}
+        onDone={() => { setTariffForm(null); load(); }} />}
+
+      {archiving && (
+        <ConfirmDialog title="Retirer du catalogue ?" danger confirmLabel="Retirer"
+          onConfirm={archive} onClose={() => setArchiving(null)}
+          message={`« ${archiving.row.label} » n'apparaîtra plus lors de la saisie.`}>
+          <p className="muted small">
+            Rien n'est supprimé : les rendez-vous et les factures qui s'y
+            réfèrent restent intacts et lisibles. L'élément peut être réactivé
+            à tout moment via « Afficher les éléments retirés ».
+          </p>
+        </ConfirmDialog>
+      )}
+    </>
+  );
+}
+
+/** Formulaire d'un type de rendez-vous : durée, battement, tarif par défaut. */
+function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
+  const editing = Boolean(row);
+  const [f, setF] = useState({
+    code: row?.code || '', label: row?.label || '',
+    specialtyId: row?.specialty_id || '',
+    defaultDurationMinutes: row?.default_duration_minutes ?? 20,
+    bufferBeforeMinutes: row?.buffer_before_minutes ?? 0,
+    bufferAfterMinutes: row?.buffer_after_minutes ?? 5,
+    requiresRoom: row?.requires_room ?? true,
+    color: row?.color || '#3b82f6',
+    defaultTariffId: row?.default_tariff_id || '',
+    preparationInstructions: row?.preparation_instructions || '',
+  });
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
+  const num = (k) => (e) => set(k, Number(e.target.value));
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      // Les listes déroulantes rendent '' quand rien n'est choisi ; l'API
+      // attend un UUID ou l'absence du champ, pas une chaîne vide.
+      const body = { ...f,
+        specialtyId: f.specialtyId || undefined,
+        defaultTariffId: f.defaultTariffId || undefined };
+      if (editing) await api.updateAppointmentType(row.id, body);
+      else await api.createAppointmentType(body);
+      toast.success(editing ? 'Type mis à jour.' : 'Type créé.');
+      onDone();
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  const total = Number(f.defaultDurationMinutes || 0)
+    + Number(f.bufferBeforeMinutes || 0) + Number(f.bufferAfterMinutes || 0);
+  const chosen = tariffs.find((t) => t.id === f.defaultTariffId);
+
+  return (
+    <Modal title={editing ? `Modifier « ${row.label} »` : 'Nouveau type de rendez-vous'}
+           onClose={onClose} wide footer={
+      <>
+        <button className="btn" onClick={onClose}>Annuler</button>
+        <button className="btn primary" disabled={busy} onClick={submit}>
+          {editing ? 'Enregistrer' : 'Créer'}</button>
+      </>
+    }>
+      <ErrorAlert error={error} />
+      <div className="row">
+        <Field label="Code *" error={error?.details?.code}
+               help="Repère court, par exemple CS-CARDIO.">
+          <input value={f.code} onChange={(e) => set('code', e.target.value.toUpperCase())}
+                 disabled={editing} autoFocus={!editing} /></Field>
+        <Field label="Intitulé *" error={error?.details?.label}>
+          <input value={f.label} onChange={(e) => set('label', e.target.value)}
+                 autoFocus={editing} placeholder="Consultation cardiologie" /></Field>
+      </div>
+
+      <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Durée</h4>
+      <div className="row">
+        <Field label="Durée de l'acte *" error={error?.details?.defaultDurationMinutes}
+               help="Temps passé avec le patient, de 5 à 480 minutes.">
+          <input type="number" min="5" max="480" step="5"
+                 value={f.defaultDurationMinutes} onChange={num('defaultDurationMinutes')} /></Field>
+        <Field label="Battement avant"
+               help="Préparation de la salle ou du matériel.">
+          <input type="number" min="0" max="120" step="5"
+                 value={f.bufferBeforeMinutes} onChange={num('bufferBeforeMinutes')} /></Field>
+        <Field label="Battement après"
+               help="Nettoyage, compte rendu, marge de retard.">
+          <input type="number" min="0" max="120" step="5"
+                 value={f.bufferAfterMinutes} onChange={num('bufferAfterMinutes')} /></Field>
+      </div>
+      <div className="alert info" style={{ marginTop: -4 }}>
+        <span>⏱</span>
+        <div>
+          Ce rendez-vous occupera <strong>{total} minutes</strong> dans l'agenda
+          du praticien, soit environ <strong>{Math.floor(480 / (total || 1))}</strong> patients
+          sur une journée de 8 heures. Les battements bloquent le créneau sans
+          apparaître comme temps de consultation.
+        </div>
+      </div>
+
+      <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Facturation</h4>
+      <div className="row">
+        <Field label="Tarif appliqué par défaut"
+               help="Reporté sur la facture ; modifiable acte par acte.">
+          <select value={f.defaultTariffId}
+                  onChange={(e) => set('defaultTariffId', e.target.value)}>
+            <option value="">— Aucun —</option>
+            {tariffs.filter((t) => t.is_active).map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.code} — {t.label} ({t.amount})</option>
+            ))}
+          </select></Field>
+        <Field label="Spécialité">
+          <select value={f.specialtyId} onChange={(e) => set('specialtyId', e.target.value)}>
+            <option value="">— Aucune —</option>
+            {specialties.map((sp) => (
+              <option key={sp.id} value={sp.id}>{sp.label}</option>))}
+          </select></Field>
+      </div>
+      {chosen && (
+        <p className="muted small" style={{ marginTop: -6 }}>
+          Un rendez-vous de ce type sera facturé <strong>{fmtMoney(chosen.amount)}</strong>.
+        </p>
+      )}
+
+      <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Organisation</h4>
+      <div className="row">
+        <Field label="Couleur dans l'agenda">
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="color" value={f.color}
+                   onChange={(e) => set('color', e.target.value)}
+                   style={{ width: 42 }} />
+            <input value={f.color} onChange={(e) => set('color', e.target.value)}
+                   style={{ fontFamily: 'monospace' }} />
+          </div></Field>
+        <Field label="Salle">
+          <label className="check" style={{ minHeight: 38 }}>
+            <input type="checkbox" checked={f.requiresRoom}
+                   onChange={(e) => set('requiresRoom', e.target.checked)} />
+            Une salle est nécessaire
+          </label></Field>
+      </div>
+      <Field label="Consignes de préparation au patient"
+             help="Affichées lors de la prise de rendez-vous. Ex. : venir à jeun.">
+        <input value={f.preparationInstructions}
+               onChange={(e) => set('preparationInstructions', e.target.value)} /></Field>
+
+      {editing && (
+        <div className="alert warning" style={{ marginTop: 10 }}>
+          <span>⚠</span>
+          <div>La nouvelle durée s'appliquera aux <strong>prochains</strong> rendez-vous.
+            Ceux déjà planifiés gardent l'horaire annoncé au patient.</div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Formulaire d'un tarif : code, libellé, montant. */
+function TariffForm({ row, specialties, onClose, onDone }) {
+  const editing = Boolean(row);
+  const [f, setF] = useState({
+    code: row?.code || '', label: row?.label || '',
+    amount: row ? Number(row.amount) : 0,
+    vatRate: row ? Number(row.vat_rate) : 0,
+    specialtyId: row?.specialty_id || '',
+  });
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const body = { ...f, specialtyId: f.specialtyId || undefined };
+      if (editing) await api.updateTariff(row.id, body);
+      else await api.createTariff(body);
+      toast.success(editing ? 'Tarif mis à jour.' : 'Tarif créé.');
+      onDone();
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  const priceChanged = editing && Number(row.amount) !== Number(f.amount);
+
+  return (
+    <Modal title={editing ? `Modifier le tarif ${row.code}` : 'Nouveau tarif'}
+           onClose={onClose} footer={
+      <>
+        <button className="btn" onClick={onClose}>Annuler</button>
+        <button className="btn primary" disabled={busy} onClick={submit}>
+          {editing ? 'Enregistrer' : 'Créer'}</button>
+      </>
+    }>
+      <ErrorAlert error={error} />
+      <div className="row">
+        <Field label="Code *" error={error?.details?.code}
+               help="Lettre-clé de la nomenclature : C, CS, K, B…">
+          <input value={f.code} onChange={(e) => set('code', e.target.value.toUpperCase())}
+                 autoFocus={!editing} placeholder="CS-CARDIO" /></Field>
+        <Field label="Montant en DA *" error={error?.details?.amount}>
+          <input type="number" min="0" step="50" value={f.amount}
+                 onChange={(e) => set('amount', Number(e.target.value))}
+                 autoFocus={editing} /></Field>
+      </div>
+      <Field label="Libellé *" error={error?.details?.label}
+             help="Texte imprimé sur la facture du patient.">
+        <input value={f.label} onChange={(e) => set('label', e.target.value)}
+               placeholder="Consultation cardiologie" /></Field>
+      <div className="row">
+        <Field label="TVA en %"
+               help="Les actes médicaux en sont généralement exonérés : laisser 0.">
+          <input type="number" min="0" max="100" step="0.5" value={f.vatRate}
+                 onChange={(e) => set('vatRate', Number(e.target.value))} /></Field>
+        <Field label="Spécialité">
+          <select value={f.specialtyId} onChange={(e) => set('specialtyId', e.target.value)}>
+            <option value="">— Aucune —</option>
+            {specialties.map((sp) => (
+              <option key={sp.id} value={sp.id}>{sp.label}</option>))}
+          </select></Field>
+      </div>
+
+      {priceChanged && (
+        <div className="alert info">
+          <span>ⓘ</span>
+          <div>
+            Le prix passera de <strong>{fmtMoney(row.amount)}</strong> à
+            {' '}<strong>{fmtMoney(f.amount)}</strong> pour les
+            <strong> prochaines</strong> facturations.
+            Les factures déjà établies conservent leur montant : elles gardent
+            une copie du prix appliqué le jour de leur émission.
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

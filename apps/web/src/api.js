@@ -186,4 +186,19 @@ export const api = {
   theme: () => request('/api/theme'),
   updateTheme: (b) => request('/api/theme', { method: 'PUT', body: b }),
   resetTheme: () => request('/api/theme/reset', { method: 'POST', body: {} }),
+
+  // --- Catalogue : actes, durées et tarifs -------------------------------
+  catalogue: () => request('/api/catalogue'),
+  createTariff: (b) => request('/api/tariffs', { method: 'POST', body: b }),
+  updateTariff: (id, b) => request(`/api/tariffs/${id}`, { method: 'PATCH', body: b }),
+  // Désactivation, jamais suppression : les lignes de facture y renvoient.
+  archiveTariff: (id) => request(`/api/tariffs/${id}`, { method: 'DELETE' }),
+  restoreTariff: (id) => request(`/api/tariffs/${id}/restore`, { method: 'POST', body: {} }),
+  createAppointmentType: (b) => request('/api/appointment-types', { method: 'POST', body: b }),
+  updateAppointmentType: (id, b) =>
+    request(`/api/appointment-types/${id}`, { method: 'PATCH', body: b }),
+  archiveAppointmentType: (id) =>
+    request(`/api/appointment-types/${id}`, { method: 'DELETE' }),
+  restoreAppointmentType: (id) =>
+    request(`/api/appointment-types/${id}/restore`, { method: 'POST', body: {} }),
 };

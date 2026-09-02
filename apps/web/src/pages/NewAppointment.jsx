@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../api.js';
 import {
-  Modal, Field, ErrorAlert, Spinner, fmtName, fmtTime, age, toISODate, useToast, Empty,
+  Modal, Field, ErrorAlert, Spinner, fmtName, fmtTime, fmtMoney, age, toISODate,
+  useToast, Empty,
 } from '../lib.jsx';
 
 /** Assistant de prise de rendez-vous en 3 étapes : patient → créneau → confirmation. */
@@ -239,11 +240,17 @@ function StepSlot({ patient, refs, initial, onBack, onCreated }) {
       <ErrorAlert error={error} />
 
       <div className="row">
-        <Field label="Type de rendez-vous">
+        {/* Durée ET tarif : l'accueil doit pouvoir annoncer le prix au
+            patient sans quitter l'écran de prise de rendez-vous. */}
+        <Field label="Type de rendez-vous"
+               help={type?.tariff_amount != null
+                 ? `Sera facturé ${fmtMoney(type.tariff_amount)}.`
+                 : undefined}>
           <select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
             {refs.types.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.label} ({t.default_duration_minutes} min)
+                {t.label} ({t.default_duration_minutes} min
+                {t.tariff_amount != null ? ` · ${t.tariff_amount} DA` : ''})
               </option>
             ))}
           </select>

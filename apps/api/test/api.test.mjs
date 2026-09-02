@@ -846,6 +846,92 @@ describe('Gouvernance', () => {
     }
   });
 
+  test('le catalogue expose durée, battements et tarif de chaque acte', async () => {
+    const d = await (await api('/api/catalogue')).json();
+    assert.ok(d.types.length > 0 && d.tariffs.length > 0);
+    const t = d.types.find((x) => x.code === 'CS-CARDIO');
+    assert.equal(t.default_duration_minutes, 30);
+    assert.ok(Number(t.tariff_amount) > 0, 'le montant doit accompagner l\'acte');
+    assert.ok(typeof t.appointment_count === 'number');
+  });
+
+  test('durée et tarif se modifient depuis l\'interface', async () => {
+    const cat = await (await api('/api/catalogue')).json();
+    const type = cat.types.find((x) => x.code === 'CS-DERMA');
+    const before = type.default_duration_minutes;
+
+    const up = await (await api(`/api/appointment-types/${type.id}`, { method: 'PATCH',
+      body: { defaultDurationMinutes: 45, bufferAfterMinutes: 15 } })).json();
+    assert.equal(up.default_duration_minutes, 45);
+    assert.equal(up.buffer_after_minutes, 15);
+
+    await api(`/api/appointment-types/${type.id}`, { method: 'PATCH',
+      body: { defaultDurationMinutes: before, bufferAfterMinutes: 5 } });
+  });
+
+  test('changer un prix ne réécrit pas les factures déjà établies', async () => {
+    // Le point le plus sensible : invoice_line copie le prix unitaire au lieu
+    // de pointer le tarif. Une hausse ne doit jamais toucher le passé.
+    const cat = await (await api('/api/catalogue')).json();
+    const tariff = cat.tariffs.find((t) => t.code === 'C');
+
+    const { rows: b } = await query(
+      `SELECT l.id, l.unit_price FROM invoice_line l
+        WHERE l.tariff_id = $1 ORDER BY l.id LIMIT 5`, [tariff.id]);
+    assert.ok(b.length > 0, 'il faut des lignes existantes pour que le test ait un sens');
+
+    const r = await api(`/api/tariffs/${tariff.id}`, { method: 'PATCH', body: { amount: 9999 } });
+    assert.equal(r.status, 200, 'la mise à jour du tarif doit aboutir');
+
+    const { rows: a } = await query(
+      `SELECT l.id, l.unit_price FROM invoice_line l
+        WHERE l.id = ANY($1::uuid[]) ORDER BY l.id`, [b.map((r) => r.id)]);
+    for (let i = 0; i < b.length; i++) {
+      assert.equal(Number(a[i].unit_price), Number(b[i].unit_price),
+        'le prix figurant sur une facture émise ne doit pas bouger');
+    }
+
+    await api(`/api/tariffs/${tariff.id}`, { method: 'PATCH',
+      body: { amount: Number(tariff.amount) } });
+
+    /*
+     * Ceinture et bretelles : même une écriture directe en SQL est refusée
+     * par le déclencheur `trg_invoice_line_guard` dès que la facture a
+     * quitté l'état DRAFT. La protection ne dépend donc pas du code API.
+     */
+    const issued = await one(
+      `SELECT l.id FROM invoice_line l JOIN invoice i ON i.id = l.invoice_id
+        WHERE i.status <> 'DRAFT' LIMIT 1`);
+    if (issued) {
+      await assert.rejects(
+        () => query('UPDATE invoice_line SET unit_price = 1 WHERE id = $1', [issued.id]),
+        /non modifiable/,
+        'la base doit refuser de modifier la ligne d\'une facture émise');
+    }
+  });
+
+  test('un tarif ou un acte encore utilisé ne peut pas être retiré', async () => {
+    const cat = await (await api('/api/catalogue')).json();
+
+    const tariff = cat.tariffs.find((t) => t.used_by_types > 0);
+    const r1 = await api(`/api/tariffs/${tariff.id}`, { method: 'DELETE' });
+    assert.equal(r1.status, 422);
+    assert.equal((await r1.json()).error.code, 'TARIFF_IN_USE');
+
+    const type = cat.types.find((t) => t.appointment_count > 0);
+    const r2 = await api(`/api/appointment-types/${type.id}`, { method: 'DELETE' });
+    assert.equal(r2.status, 422);
+    assert.equal((await r2.json()).error.code, 'TYPE_IN_USE');
+  });
+
+  test('le catalogue est en lecture seule pour un réceptionniste', async () => {
+    const cat = await (await api('/api/catalogue')).json();
+    assert.equal((await api('/api/catalogue', { as: 's.amrani' })).status, 200,
+      'la lecture reste nécessaire pour prendre un rendez-vous');
+    assert.equal((await api(`/api/tariffs/${cat.tariffs[0].id}`, { as: 's.amrani',
+      method: 'PATCH', body: { amount: 1 } })).status, 403);
+  });
+
   test('la personnalisation est refusée à un compte non administrateur', async () => {
     assert.equal((await api('/api/theme', { as: 's.amrani', method: 'PUT',
       body: { primaryColor: '#000000' } })).status, 403);

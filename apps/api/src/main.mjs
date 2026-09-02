@@ -18,6 +18,7 @@ import { registerBillingRoutes } from './modules/billing.routes.mjs';
 import { registerReportRoutes } from './modules/reports.routes.mjs';
 import { registerAdminRoutes } from './modules/admin.routes.mjs';
 import { registerGovernanceRoutes } from './modules/governance.routes.mjs';
+import { registerCatalogueRoutes } from './modules/catalogue.routes.mjs';
 import { processNotificationQueue } from './modules/notifications.service.mjs';
 import { integrityCheck } from './modules/backup.service.mjs';
 
@@ -111,6 +112,7 @@ export function buildRouter() {
   registerReportRoutes(router);
   registerAdminRoutes(router);
   registerGovernanceRoutes(router);
+  registerCatalogueRoutes(router);
   return router;
 }
 
