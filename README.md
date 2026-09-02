@@ -109,3 +109,31 @@ Pour un déploiement réel, remplacer le cluster embarqué par un PostgreSQL ins
 serveur (mêmes fichiers SQL), placer l'API derrière Nginx en TLS interne, activer les
 sauvegardes planifiées (`cron` sur `/api/admin/backups`) et suivre le document 05 pour le
 durcissement, la rotation des secrets et les procédures de restauration.
+
+### Installation en une commande sur un poste local
+
+Un script d'installation automatise l'ensemble des prérequis (Node.js, dépendances,
+PostgreSQL embarqué, schéma, données de démonstration, compilation de l'interface, tests) :
+
+```bash
+git clone https://github.com/Aboubeker/repo.git clinirdv
+cd clinirdv
+git checkout arena/01a0629d-repo
+
+./install.sh              # Linux / macOS — installe puis démarre l'application
+```
+
+```powershell
+# Windows 10/11 (PowerShell)
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+Options : `--no-start` / `-NoStart` (installer sans démarrer) et `--reset` / `-Reset`
+(réinitialiser la base avant réinstallation).
+
+L'application est ensuite disponible sur **http://localhost:3001**. Le script génère un
+secret JWT aléatoire dans `.env` — la valeur d'exemple `change-me` n'est jamais conservée.
+Aucun privilège administrateur n'est requis : PostgreSQL est embarqué dans le projet
+(`.pgdata`, port 55432, écoute limitée à `127.0.0.1`) et rien n'est installé au niveau système
+hormis Node.js s'il est absent.

@@ -12,7 +12,32 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const BIN = resolve(ROOT, 'node_modules/@embedded-postgres/linux-x64/native/bin');
+
+/**
+ * Le paquet PostgreSQL embarqué est spécifique à la plateforme : npm n'installe
+ * que celui qui correspond à la machine. On le résout dynamiquement pour que le
+ * même dépôt fonctionne sous Linux, macOS (Intel et Apple Silicon) et Windows.
+ */
+function resolvePgBin() {
+  const platform = { linux: 'linux', darwin: 'darwin', win32: 'windows' }[process.platform];
+  const arch = { x64: 'x64', arm64: 'arm64', ia32: 'ia32' }[process.arch];
+  if (!platform || !arch) {
+    console.error(`Plateforme non prise en charge : ${process.platform}/${process.arch}`);
+    process.exit(1);
+  }
+  const dir = resolve(ROOT, `node_modules/@embedded-postgres/${platform}-${arch}/native/bin`);
+  if (!existsSync(dir)) {
+    console.error(
+      `PostgreSQL embarqué introuvable pour ${platform}-${arch}.\n` +
+      `Dossier attendu : ${dir}\n` +
+      'Lancez « npm install » à la racine du projet, puis réessayez.');
+    process.exit(1);
+  }
+  return dir;
+}
+
+const EXE = process.platform === 'win32' ? '.exe' : '';
+const BIN = resolvePgBin();
 const DATA = process.env.PGDATA || resolve(ROOT, '.pgdata');
 const PORT = process.env.PGPORT || '55432';
 const USER = process.env.PGUSER || 'clinirdv';
@@ -21,7 +46,7 @@ const DB = process.env.PGDATABASE || 'clinirdv';
 const LOG = resolve(ROOT, '.pgdata.log');
 
 function run(cmd, args, opts = {}) {
-  const r = spawnSync(resolve(BIN, cmd), args, { encoding: 'utf8', ...opts });
+  const r = spawnSync(resolve(BIN, cmd + EXE), args, { encoding: 'utf8', ...opts });
   if (r.error) throw r.error;
   return r;
 }
