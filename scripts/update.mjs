@@ -104,6 +104,28 @@ const install = spawnSync(npmCmd, ['install', '--no-audit', '--no-fund'],
 if (install.status !== 0) fail('Échec de « npm install ».');
 ok('Dépendances à jour');
 
+/* ---------------------------------------------------------- schéma */
+/*
+ * Migrations appliquées à chaque mise à jour.
+ *
+ * Une version récupérée par `git pull` peut réclamer des colonnes que la base
+ * locale n'a pas : sans cette étape, la mise à jour s'achevait sur un succès
+ * apparent puis l'application échouait dès la connexion (« column
+ * is_superuser does not exist »). `migrate` ne rejoue jamais une migration
+ * déjà enregistrée : l'appeler systématiquement est sans risque et coûte
+ * quelques dixièmes de seconde.
+ *
+ * Aucun `seed` ici : il écraserait les données réelles de la clinique.
+ */
+step('Mise à jour du schéma de la base');
+const migrate = spawnSync(npmCmd, ['run', 'migrate'],
+  { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
+if (migrate.status !== 0) {
+  fail('Échec des migrations. La base n\'a pas été modifiée (chaque migration ' +
+       'est appliquée dans une transaction).');
+}
+ok('Schéma à jour');
+
 /* ------------------------------------------------------ interface web */
 /*
  * Recompilation systématique — et non conditionnelle.

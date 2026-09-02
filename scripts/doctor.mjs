@@ -143,6 +143,29 @@ if (!existsSync(dataDir)) {
       if (t.n === 0) bad('Aucune table : le schéma n\'est pas appliqué', 'npm run migrate');
       else ok(`Schéma appliqué`, `${t.n} tables`);
 
+      /*
+       * Migrations en attente.
+       *
+       * Compter les tables ne suffit pas : une base à jour d'une version
+       * antérieure en possède beaucoup tout en manquant des colonnes que le
+       * code réclame. Ce diagnostic annonçait « 0 problème » alors que
+       * l'application échouait dès la connexion.
+       */
+      if (t.n > 0) {
+        try {
+          const applied = new Set((await client.query('SELECT filename FROM schema_migration')
+            .catch(() => ({ rows: [] }))).rows.map((r) => r.filename));
+          const pending = readdirSync(resolve(ROOT, 'infra/db'))
+            .filter((f) => f.endsWith('.sql') && !applied.has(f)).sort();
+          if (pending.length) {
+            bad(`${pending.length} migration(s) en attente : ${pending.join(', ')}`,
+                'npm run migrate');
+          } else {
+            ok('Migrations à jour', `${applied.size} appliquée(s)`);
+          }
+        } catch { /* diagnostic best-effort : ne doit jamais bloquer le reste */ }
+      }
+
       try {
         const { rows: [u] } = await client.query('SELECT count(*)::int AS n FROM user_account');
         if (u.n === 0) bad('Aucun compte utilisateur : impossible de se connecter', 'npm run seed');

@@ -86,7 +86,17 @@ if (await probe(PGPORT)) {
 }
 
 /* ------------------------------------------- schéma et jeu de données */
-let needMigrate = false, needSeed = false;
+/*
+ * Les migrations EN ATTENTE sont détectées, pas seulement la base vide.
+ *
+ * L'ancienne version ne migrait que si le schéma comptait zéro table. Une
+ * installation déjà en service n'appliquait donc jamais les migrations
+ * suivantes : après une mise à jour, le code réclamait des colonnes absentes
+ * et l'application échouait à la connexion, sans que rien n'ait signalé le
+ * problème. On compare désormais les fichiers de `infra/db` aux migrations
+ * déjà enregistrées.
+ */
+let needMigrate = false, needSeed = false, pending = [];
 try {
   const { default: pg } = await import('pg');
   const client = new pg.Client({
@@ -97,10 +107,19 @@ try {
   const { rows: [t] } = await client.query(
     `SELECT count(*)::int AS n FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`);
-  needMigrate = t.n === 0;
-  if (!needMigrate) {
+
+  if (t.n === 0) {
+    needMigrate = true;
+  } else {
+    // La table de suivi peut manquer sur une base antérieure à son introduction.
+    const applied = new Set((await client.query('SELECT filename FROM schema_migration')
+      .catch(() => ({ rows: [] }))).rows.map((r) => r.filename));
+    pending = readdirSync(resolve(ROOT, 'infra/db'))
+      .filter((f) => f.endsWith('.sql') && !applied.has(f)).sort();
+    needMigrate = pending.length > 0;
+
     const { rows: [u] } = await client.query('SELECT count(*)::int AS n FROM user_account')
-      .catch(() => [{ n: 0 }]);
+      .catch(() => ({ rows: [{ n: 0 }] }));
     needSeed = !u || u.n === 0;
   }
   await client.end();
@@ -114,9 +133,19 @@ const runNpm = (script, label) => {
   const r = spawnSync(npmCmd, ['run', script], { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
   if (r.status !== 0) die(`Échec de « npm run ${script} ».`);
 };
-if (needMigrate) { runNpm('migrate', 'Application du schéma'); runNpm('seed', 'Chargement des données'); }
-else if (needSeed) runNpm('seed', 'Chargement des données de démonstration');
-else ok('Schéma et données en place');
+if (needMigrate && pending.length) {
+  // Base déjà peuplée : on complète le schéma sans toucher aux données.
+  console.log(`  ${c(33, '→')} ${pending.length} migration(s) à appliquer : ${pending.join(', ')}`);
+  runNpm('migrate', 'Mise à jour du schéma');
+  if (needSeed) runNpm('seed', 'Chargement des données de démonstration');
+} else if (needMigrate) {
+  runNpm('migrate', 'Application du schéma');
+  runNpm('seed', 'Chargement des données');
+} else if (needSeed) {
+  runNpm('seed', 'Chargement des données de démonstration');
+} else {
+  ok('Schéma et données en place');
+}
 
 /* -------------------------------------------------------- interface web */
 /*
