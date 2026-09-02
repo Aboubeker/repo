@@ -72,12 +72,24 @@ Step "Configuration locale (.env)"
 if (Test-Path .env) {
   Ok ".env existant conserve"
 } else {
-  Copy-Item .env.example .env
   $bytes = New-Object byte[] 48
   [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   $secret = -join ($bytes | ForEach-Object { $_.ToString('x2') })
-  (Get-Content .env) -replace '^JWT_SECRET=.*', "JWT_SECRET=$secret" | Set-Content .env -Encoding UTF8
+  $content = (Get-Content .env.example) -replace '^JWT_SECRET=.*', "JWT_SECRET=$secret"
+  # IMPORTANT : ecriture sans BOM. « Set-Content -Encoding UTF8 » ajoute un BOM
+  # sous PowerShell 5.1, ce qui corrompt le nom de la premiere variable et rend
+  # NODE_ENV illisible pour « node --env-file ».
+  [IO.File]::WriteAllLines((Join-Path $PWD '.env'), $content, (New-Object Text.UTF8Encoding($false)))
   Ok ".env cree avec un secret JWT aleatoire"
+}
+
+# Detecte un .env corrompu par un BOM (installation faite avec une version
+# anterieure du script) et le repare.
+$envBytes = [IO.File]::ReadAllBytes((Join-Path $PWD '.env'))
+if ($envBytes.Length -ge 3 -and $envBytes[0] -eq 0xEF -and $envBytes[1] -eq 0xBB -and $envBytes[2] -eq 0xBF) {
+  $lines = [IO.File]::ReadAllLines((Join-Path $PWD '.env'))
+  [IO.File]::WriteAllLines((Join-Path $PWD '.env'), $lines, (New-Object Text.UTF8Encoding($false)))
+  Warn ".env contenait un BOM UTF-8 : corrige"
 }
 
 $portApp = (Select-String -Path .env -Pattern '^PORT=' | ForEach-Object { $_.Line.Split('=')[1] })

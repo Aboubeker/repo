@@ -87,9 +87,27 @@ export function createServer() {
 const isMain = process.argv[1] && import.meta.url === `file://${resolve(process.argv[1])}`;
 if (isMain) {
   const server = createServer();
+
+  // Un échec d'écoute doit être explicite : sans cela le processus s'arrête en
+  // silence et le navigateur affiche seulement « connexion refusée ».
+  server.on('error', (e) => {
+    console.error(`\n  ✗ Impossible de démarrer le serveur sur ${HOST}:${PORT}`);
+    if (e.code === 'EADDRINUSE') {
+      console.error('    Ce port est déjà utilisé par une autre application.');
+      console.error('    Modifiez PORT dans le fichier .env, puis relancez « npm start ».');
+    } else if (e.code === 'EACCES') {
+      console.error('    Port réservé ou accès refusé. Utilisez un port supérieur à 1024.');
+    } else {
+      console.error(`    ${e.code} — ${e.message}`);
+    }
+    console.error('');
+    process.exit(1);
+  });
+
   server.listen(PORT, HOST, () => {
+    const shown = HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST;
     console.log(`\n  CliniRDV — ${process.env.CLINIC_NAME || 'Clinique'}`);
-    console.log(`  Serveur local : http://${HOST}:${PORT}`);
+    console.log(`  Interface     : http://${shown}:${PORT}`);
     console.log(`  Mode          : on-premise (aucune synchronisation externe)\n`);
   });
 
