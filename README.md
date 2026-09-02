@@ -110,6 +110,19 @@ serveur (mêmes fichiers SQL), placer l'API derrière Nginx en TLS interne, acti
 sauvegardes planifiées (`cron` sur `/api/admin/backups`) et suivre le document 05 pour le
 durcissement, la rotation des secrets et les procédures de restauration.
 
+### Avertissements de sécurité npm
+
+Le projet est livré avec **Vite 6 et esbuild 0.25**, versions exemptes de l'alerte
+`GHSA-67mh-4wv8-2f99`. `npm audit` doit rapporter **0 vulnérabilité**.
+
+Si une alerte apparaît à l'avenir, notez qu'elle ne concerne en général que l'outillage
+de développement (`devDependencies`) : le serveur de production ne dépend que de `pg`.
+La faille esbuild visait le serveur de développement `npm run dev:web`, jamais le binaire
+compilé servi par `npm start`.
+
+Évitez `npm audit fix --force`, qui peut imposer une version majeure non testée. Préférez
+`npm audit fix` seul, puis vérifiez avec `npm test` et `npm run build:web`.
+
 ### Mettre à jour la copie locale
 
 ```bash
