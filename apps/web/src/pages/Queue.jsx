@@ -11,6 +11,10 @@ const COLUMNS = [
 ];
 
 export default function Queue({ user, go }) {
+  // Repli sur les rappels de navigation : cette page peut être montée
+  // hors de App.jsx. Un appel sur une prop absente ferait tomber tout
+  // l'écran en « is not a function ».
+  go = go || (() => {});
   const [date, setDate] = useState(toISODate(new Date()));
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);

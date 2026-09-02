@@ -505,6 +505,10 @@ function System() {
  * portée de clic, sans terminal ni ligne de commande.
  */
 function Overview({ go }) {
+  // Repli sur les rappels de navigation : cette page peut être montée
+  // hors de App.jsx. Un appel sur une prop absente ferait tomber tout
+  // l'écran en « is not a function ».
+  go = go || (() => {});
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);

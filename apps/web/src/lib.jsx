@@ -1,5 +1,5 @@
 /** Utilitaires partagés : formatage, statuts, composants d'interface communs. */
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 /* ------------------------------ Formatage ------------------------------ */
 export const fmtDate = (d) => d ? new Date(d).toLocaleDateString('fr-DZ') : '—';
@@ -77,8 +77,27 @@ export const Badge = ({ status, map = STATUS }) => {
 };
 
 /* --------------------------- Notifications UI --------------------------- */
-const ToastCtx = createContext(null);
-export const useToast = () => useContext(ToastCtx);
+/*
+ * Contexte des notifications.
+ *
+ * La valeur par défaut n'est PAS `null`. Un composant rendu hors du Provider
+ * — cas d'un écran d'erreur, d'un test, ou d'un arbre monté séparément —
+ * recevrait alors `null`, et le premier `toast.success(...)` lèverait
+ * « TypeError: r is not a function » après minification : un message
+ * impossible à relier à sa cause.
+ *
+ * Le repli journalise dans la console au lieu d'interrompre l'application.
+ * Une notification est un confort, jamais une raison de faire écran blanc.
+ */
+const noopToast = {
+  info:    (m) => console.info('[toast]', m),
+  success: (m) => console.info('[toast ✓]', m),
+  error:   (m) => console.error('[toast ✗]', m),
+};
+
+const ToastCtx = createContext(noopToast);
+
+export const useToast = () => useContext(ToastCtx) ?? noopToast;
 
 export function ToastProvider({ children }) {
   const [items, setItems] = useState([]);
@@ -87,11 +106,14 @@ export function ToastProvider({ children }) {
     setItems((l) => [...l, { id, message, type }]);
     setTimeout(() => setItems((l) => l.filter((t) => t.id !== id)), 5000);
   }, []);
-  const toast = {
-    info: (m) => push(m, 'info'),
+  // useMemo : sans cela, `toast` est un objet neuf à chaque rendu du
+  // Provider. Tout useEffect qui le déclare en dépendance se relancerait en
+  // boucle — y compris les rafraîchissements périodiques.
+  const toast = useMemo(() => ({
+    info:    (m) => push(m, 'info'),
     success: (m) => push(m, 'success'),
-    error: (m) => push(m, 'error'),
-  };
+    error:   (m) => push(m, 'error'),
+  }), [push]);
   return (
     <ToastCtx.Provider value={toast}>
       {children}

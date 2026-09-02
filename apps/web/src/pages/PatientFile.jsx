@@ -11,6 +11,8 @@ const TABS = [
 ];
 
 export default function PatientFile({ id, user, go, onNewAppt }) {
+  onNewAppt = onNewAppt || (() => {});
+  go = go || (() => {});
   const [d, setD] = useState(null);
   const [tab, setTab] = useState('identity');
   const [error, setError] = useState(null);

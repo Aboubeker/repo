@@ -6,6 +6,10 @@ import {
 } from '../lib.jsx';
 
 export default function Billing({ user, go }) {
+  // Repli sur les rappels de navigation : cette page peut être montée
+  // hors de App.jsx. Un appel sur une prop absente ferait tomber tout
+  // l'écran en « is not a function ».
+  go = go || (() => {});
   const [tab, setTab] = useState('invoices');
   return (
     <>
@@ -98,6 +102,11 @@ function Invoices({ user, go }) {
 }
 
 function InvoiceDetail({ id, user, go, onClose, onChanged }) {
+  // Panneau réutilisable : selon l'appelant, tous les rappels ne sont pas
+  // fournis. Sans repli, un simple clic ferait tomber l'écran entier.
+  go = go || (() => {});
+  onClose = onClose || (() => {});
+  onChanged = onChanged || (() => {});
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -272,6 +281,7 @@ function PayModal({ invoice, onClose, onDone }) {
 
 /* ------------------------------- Impayés -------------------------------- */
 function Outstanding({ go }) {
+  go = go || (() => {});
   const [items, setItems] = useState(null);
   useEffect(() => { api.outstanding().then((d) => setItems(d.items)); }, []);
   if (!items) return <Spinner />;

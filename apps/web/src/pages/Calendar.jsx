@@ -8,6 +8,12 @@ import {
 const DAY_START = 8, DAY_END = 19, PX_PER_MIN = 1.1;
 
 export default function Calendar({ user, go, onNewAppt }) {
+  // Les callbacks de navigation sont fournis par App.jsx, mais ce composant
+  // est aussi monté depuis d'autres écrans. Un appel sur une prop absente
+  // produirait « X is not a function » et un écran d'erreur complet, là où
+  // ne rien faire est inoffensif.
+  onNewAppt = onNewAppt || (() => {});
+  go = go || (() => {});
   const [view, setView] = useState('week');
   const [anchor, setAnchor] = useState(() => new Date());
   const [practitioners, setPractitioners] = useState([]);
@@ -227,6 +233,10 @@ function layout(list) {
 
 /* ------------------------- Panneau de détail --------------------------- */
 export function AppointmentDetail({ id, user, go, onClose, onChanged }) {
+  // Réutilisé par Queue.jsx : toutes les fonctions ne sont pas fournies.
+  go = go || (() => {});
+  onChanged = onChanged || (() => {});
+  onClose = onClose || (() => {});
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
   const [cancelling, setCancelling] = useState(false);

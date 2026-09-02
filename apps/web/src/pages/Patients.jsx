@@ -4,6 +4,10 @@ import { Spinner, Empty, Modal, Field, ErrorAlert, fmtName, fmtMoney,
          age, can, useToast } from '../lib.jsx';
 
 export default function Patients({ user, go }) {
+  // Repli sur les rappels de navigation : cette page peut être montée
+  // hors de App.jsx. Un appel sur une prop absente ferait tomber tout
+  // l'écran en « is not a function ».
+  go = go || (() => {});
   const [q, setQ] = useState('');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);

@@ -3,6 +3,11 @@ import { api } from '../api.js';
 import { Stat, Spinner, Badge, fmtTime, fmtMoney, fmtName, can, Empty, Bar } from '../lib.jsx';
 
 export default function Dashboard({ user, go, onNewAppt }) {
+  // Repli sur les rappels de navigation : cette page peut être montée
+  // hors de App.jsx. Un appel sur une prop absente ferait tomber tout
+  // l'écran en « is not a function ».
+  go = go || (() => {});
+  onNewAppt = onNewAppt || (() => {});
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
