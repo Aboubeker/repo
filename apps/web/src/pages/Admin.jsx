@@ -28,7 +28,7 @@ export default function Admin({ user }) {
         ))}
       </div>
       {tab === 'overview' && <Overview go={setTab} />}
-      {tab === 'users'    && <Users user={user} />}
+      {tab === 'users'    && <Users />}
       {tab === 'roles'    && <Roles />}
       {tab === 'theme'    && <Appearance />}
       {tab === 'settings' && <Settings />}
@@ -40,7 +40,7 @@ export default function Admin({ user }) {
 }
 
 /* ----------------------------- Utilisateurs ------------------------------ */
-function Users({ user }) {
+function Users() {
   const [items, setItems] = useState(null);
   const [roles, setRoles] = useState([]);
   const [error, setError] = useState(null);
@@ -48,7 +48,6 @@ function Users({ user }) {
   const [deleting, setDeleting] = useState(null);
   const [q, setQ] = useState('');
   const toast = useToast();
-  const iAmSuperuser = user?.isSuperuser === true;
 
   const load = () => api.users().then((d) => setItems(d.items)).catch(setError);
   useEffect(function loadUsersAndRoles() {
@@ -66,15 +65,6 @@ function Users({ user }) {
     try {
       await api.updateUser(u.id, { password: pwd });
       toast.success('Mot de passe réinitialisé ; sessions révoquées.');
-      load();
-    } catch (e) { toast.error(e.message); }
-  };
-  const toggleSuperuser = async (u) => {
-    try {
-      await api.setSuperuser(u.id, !u.is_superuser);
-      toast.success(u.is_superuser
-        ? `${u.username} n'est plus superutilisateur.`
-        : `${u.username} est désormais superutilisateur.`);
       load();
     } catch (e) { toast.error(e.message); }
   };
@@ -145,14 +135,6 @@ function Users({ user }) {
                           onClick={() => setStatus(u, 'DISABLED', 'Compte désactivé.')}>Désactiver</button>}
                     <button className="btn ghost sm"
                             onClick={() => resetPassword(u)}>Réinitialiser</button>
-                    {/* Le rang de superutilisateur ne se délègue qu'entre pairs :
-                        un administrateur ordinaire ne doit pas pouvoir se
-                        l'octroyer et contourner ainsi toute la matrice RBAC. */}
-                    {iAmSuperuser && (
-                      <button className="btn ghost sm" onClick={() => toggleSuperuser(u)}
-                              title="Accorder ou retirer toutes les permissions">
-                        {u.is_superuser ? 'Retirer superuser' : 'Superuser'}</button>
-                    )}
                     <button className="btn ghost sm danger" onClick={() => setDeleting(u)}
                             title="Supprimer le compte">Supprimer</button>
                   </td>
@@ -245,8 +227,7 @@ function UserForm({ target, roles, onClose, onDone }) {
       <Field label="Rôles" help="Les permissions accordées sont l'union de celles des rôles cochés.">
         <div style={{ display: 'grid', gap: 5 }}>
           {roles.map((r) => (
-            <label key={r.code} style={{ display: 'flex', gap: 7, alignItems: 'center',
-                                         fontSize: 13 }}>
+            <label key={r.code} className="check" style={{ fontSize: 13 }}>
               <input type="checkbox" checked={f.roles.includes(r.code)}
                      onChange={(e) => setF({ ...f, roles: e.target.checked
                        ? [...f.roles, r.code] : f.roles.filter((x) => x !== r.code) })} />
@@ -477,8 +458,7 @@ function RoleForm({ role, permissions, onClose, onDone }) {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
               {perms.map((p) => (
-                <label key={p.code} style={{ display: 'flex', gap: 7, alignItems: 'flex-start',
-                                             fontSize: 12.5 }}>
+                <label key={p.code} className="check" style={{ fontSize: 12.5 }}>
                   <input type="checkbox" checked={f.permissions.includes(p.code)}
                          onChange={() => toggle(p.code)} />
                   <span><code>{p.code}</code>
@@ -511,16 +491,26 @@ function Appearance() {
   const [resetting, setResetting] = useState(false);
   const toast = useToast();
 
-  const apply = (t) => setF({
+  // Le nom de la clinique n'appartient pas au thème : il vit dans
+  // « app_setting » et sert aussi aux documents imprimés. On le charge et on
+  // l'enregistre à part, tout en le présentant au même endroit que le logo.
+  const [brand, setBrand] = useState(null);
+
+  const apply = (t, b) => setF((prev) => ({
     preset: t.preset || 'teal',
     primaryColor: t.primary_color, accentColor: t.accent_color,
     sidebarColor: t.sidebar_color, density: t.density, radius: t.radius,
     fontScale: Number(t.font_scale), logoDataUri: t.logo_data_uri || '',
     loginMessage: t.login_message || '',
-  });
+    clinicName:  b ? (b.clinic_name || '') : (prev?.clinicName ?? ''),
+    clinicCity:  b ? (b.city || '')        : (prev?.clinicCity ?? ''),
+    clinicPhone: b ? (b.phone || '')       : (prev?.clinicPhone ?? ''),
+  }));
 
-  useEffect(function loadTheme() {
-    api.theme().then(apply).catch(setError);
+  useEffect(function loadThemeAndBrand() {
+    Promise.all([api.theme(), api.branding().catch(() => null)])
+      .then(([t, b]) => { setBrand(b); apply(t, b); })
+      .catch(setError);
   }, []);
 
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }));
@@ -530,16 +520,37 @@ function Appearance() {
     setBusy(true); setError(null);
     try {
       const saved = await api.updateTheme(f);
-      apply(saved);
+
+      /*
+       * Les coordonnées ne sont réécrites que si elles ont changé : chaque
+       * paramètre est une requête distincte, doublée d'une écriture au
+       * journal d'audit. Enregistrer une couleur ne doit pas y laisser trois
+       * lignes de modification pour des valeurs identiques.
+       */
+      const changed = [
+        ['clinic.name',  f.clinicName,  brand?.clinic_name],
+        ['clinic.city',  f.clinicCity,  brand?.city],
+        ['clinic.phone', f.clinicPhone, brand?.phone],
+      ].filter(([, next, before]) => (next || '') !== (before || ''));
+
+      for (const [key, value] of changed) await api.updateSetting(key, value);
+
+      const b = changed.length ? await api.branding().catch(() => brand) : brand;
+      setBrand(b);
+      apply(saved, b);
       applyTheme(saved);
-      toast.success('Apparence enregistrée pour tous les postes.');
+      toast.success(changed.length
+        ? 'Apparence et identité enregistrées pour tous les postes.'
+        : 'Apparence enregistrée pour tous les postes.');
     } catch (e) { setError(e); } finally { setBusy(false); }
   };
 
   const reset = async () => {
     try {
       const saved = await api.resetTheme();
-      apply(saved); applyTheme(saved);
+      // Le nom de la clinique n'est pas remis à zéro : ce n'est pas une
+      // préférence visuelle, et le retrouver vidé serait déroutant.
+      apply(saved, brand); applyTheme(saved);
       toast.success('Apparence réinitialisée.');
     } catch (e) { toast.error(e.message); }
   };
@@ -629,6 +640,25 @@ function Appearance() {
           </div>
 
           <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Identité de la clinique</h4>
+          {/*
+            * Le nom et les coordonnées vivent dans « app_setting », éditables
+            * jusqu'ici depuis le seul onglet Paramètres — un tableau de clés
+            * techniques et de valeurs JSON où personne ne pense à les
+            * chercher. Ils sont repris ici, à côté du logo : changer le logo
+            * sans pouvoir changer le nom qui l'accompagne n'a pas de sens.
+            */}
+          <div className="row">
+            <Field label="Nom de la clinique"
+                   help="Affiché dans le menu, sur l'écran de connexion et sur les documents imprimés.">
+              <input value={f.clinicName} onChange={(e) => set('clinicName', e.target.value)}
+                     placeholder="Clinique El Amel" /></Field>
+            <Field label="Ville">
+              <input value={f.clinicCity} onChange={(e) => set('clinicCity', e.target.value)}
+                     placeholder="Alger" /></Field>
+            <Field label="Téléphone">
+              <input value={f.clinicPhone} onChange={(e) => set('clinicPhone', e.target.value)}
+                     placeholder="021 00 00 00" /></Field>
+          </div>
           <div className="row">
             <Field label="Logo" help="PNG ou JPEG, 256 Ko maximum. Affiché dans le menu et sur l'écran de connexion.">
               <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pickLogo} />
@@ -805,6 +835,7 @@ function Backups() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [integrity, setIntegrity] = useState(null);
+  const [restoring, setRestoring] = useState(null);
   const toast = useToast();
 
   const load = () => { api.backups().then(setD).catch(setError); };
@@ -854,7 +885,7 @@ function Backups() {
           {d.items.length === 0 ? <Empty text="Aucune sauvegarde." /> : (
             <table>
               <thead><tr><th>Date</th><th>Type</th><th>Fichier</th><th className="num">Taille</th>
-                <th>Empreinte</th><th>État</th></tr></thead>
+                <th>Empreinte</th><th>État</th><th className="num">Actions</th></tr></thead>
               <tbody>
                 {d.items.map((b) => (
                   <tr key={b.id}>
@@ -867,6 +898,13 @@ function Backups() {
                       {(b.checksum || '').slice(0, 12)}…</td>
                     <td><span className={`badge ${b.status === 'SUCCESS' ? 'green'
                       : b.status === 'RUNNING' ? 'blue' : 'red'}`}>{b.status}</span></td>
+                    <td className="num nowrap">
+                      {b.status === 'SUCCESS' && (
+                        <button className="btn sm" onClick={() => setRestoring(b)}
+                                title="Vérifier l'archive et afficher la marche à suivre">
+                          Restaurer…</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -874,6 +912,8 @@ function Backups() {
           )}
         </div>
       </div>
+
+      {restoring && <RestoreBackup run={restoring} onClose={() => setRestoring(null)} />}
 
       {integrity && (
         <div className="card" style={{ marginTop: 14 }}>
@@ -897,6 +937,119 @@ function Backups() {
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Restauration d'une sauvegarde.
+ *
+ * L'opération ne se fait pas d'un clic, et c'est délibéré : réécrire la base
+ * pendant que des postes encaissent et modifient des dossiers provoquerait des
+ * pertes silencieuses. Le serveur vérifie donc l'archive (présence, taille,
+ * empreinte SHA-256) puis renvoie la marche à suivre, à dérouler application
+ * arrêtée. La confirmation « RESTAURER » et le motif alimentent le journal
+ * d'audit : une restauration doit rester une décision tracée.
+ */
+function RestoreBackup({ run, onClose }) {
+  const [confirm, setConfirm] = useState('');
+  const [reason, setReason] = useState('');
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      setResult(await api.restoreBackup(run.id, reason));
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  const commands = result ? result.procedure.join('\n') : '';
+
+  return (
+    <Modal title="Restaurer une sauvegarde" onClose={onClose} wide footer={
+      result
+        ? <button className="btn primary" onClick={onClose}>Fermer</button>
+        : <>
+            <button className="btn" onClick={onClose}>Annuler</button>
+            <button className="btn danger" disabled={busy || confirm !== 'RESTAURER'}
+                    onClick={submit}>
+              {busy ? 'Vérification…' : 'Vérifier et afficher la procédure'}</button>
+          </>
+    }>
+      <ErrorAlert error={error} />
+
+      <table style={{ marginBottom: 14 }}>
+        <tbody>
+          <tr><td className="muted small">Date</td>
+              <td><strong>{fmtDateTime(run.started_at)}</strong></td></tr>
+          <tr><td className="muted small">Fichier</td>
+              <td><code style={{ fontSize: 12 }}>
+                {(run.target_path || '').split(/[/\\]/).pop()}</code></td></tr>
+          <tr><td className="muted small">Taille</td>
+              <td>{run.size_bytes
+                ? `${(run.size_bytes / 1048576).toFixed(1)} Mo` : '—'}</td></tr>
+        </tbody>
+      </table>
+
+      {!result ? (
+        <>
+          <div className="alert warning">
+            <span>⚠</span>
+            <div>
+              <strong>La restauration remplace l'intégralité des données
+                actuelles.</strong>
+              <p style={{ marginTop: 6, fontSize: 12.5 }}>
+                Tout ce qui a été saisi depuis le {fmtDateTime(run.started_at)} —
+                rendez-vous, encaissements, dossiers — sera perdu. Lancez une
+                sauvegarde de l'état courant avant de poursuivre : elle vous
+                permettra de revenir en arrière si la restauration ne donne pas
+                le résultat attendu.
+              </p>
+            </div>
+          </div>
+
+          <Field label="Motif de la restauration"
+                 help="Consigné au journal d'audit, avec votre nom et l'horodatage.">
+            <input value={reason} onChange={(e) => setReason(e.target.value)}
+                   placeholder="Ex. : corruption après coupure de courant" /></Field>
+
+          <Field label="Saisissez RESTAURER pour confirmer"
+                 help="Cette saisie évite un clic malencontreux sur une opération irréversible.">
+            <input value={confirm} onChange={(e) => setConfirm(e.target.value)}
+                   autoFocus placeholder="RESTAURER" /></Field>
+        </>
+      ) : (
+        <>
+          <div className="alert success">
+            <span>✓</span>
+            <div>
+              <strong>Archive vérifiée et intacte.</strong>
+              <p style={{ marginTop: 4, fontSize: 12.5 }}>
+                L'empreinte SHA-256 correspond : le fichier n'a pas été altéré.
+              </p>
+            </div>
+          </div>
+
+          <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Marche à suivre</h4>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            À dérouler sur le serveur, application arrêtée. La restauration
+            n'est pas exécutée automatiquement : elle exige que plus aucun poste
+            n'écrive dans la base.
+          </p>
+          <pre style={{ padding: 12, background: 'var(--surface-2)',
+                        border: '1px solid var(--border)', borderRadius: 8,
+                        fontSize: 11.5, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+            {commands}
+          </pre>
+          <button className="btn sm" onClick={() => {
+            navigator.clipboard?.writeText(commands).then(() => setCopied(true));
+          }}>{copied ? 'Copié ✓' : 'Copier la procédure'}</button>
+        </>
+      )}
+    </Modal>
   );
 }
 

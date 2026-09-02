@@ -271,6 +271,36 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus {
   border-color: var(--primary); box-shadow: var(--focus-ring);
 }
+/*
+ * Cases à cocher et boutons radio.
+ *
+ * La règle générique ci-dessus vise les champs de saisie, mais `input` la
+ * porte aussi aux cases : elles héritaient de `width: 100%`, d'un remplissage
+ * de 9px et d'une hauteur minimale de 38px, ce qui les affichait démesurées —
+ * criant dans la matrice des permissions, où elles se comptent par dizaines.
+ * On les ramène à leur gabarit natif.
+ */
+input[type="checkbox"], input[type="radio"] {
+  width: 16px; height: 16px; min-height: 0; padding: 0; flex: none;
+  margin: 0; accent-color: var(--primary); cursor: pointer;
+  border-radius: 3px; vertical-align: middle;
+}
+input[type="checkbox"]:focus, input[type="radio"]:focus { box-shadow: var(--focus-ring); }
+
+/* Le sélecteur de couleur : une pastille, pas un champ pleine largeur. */
+input[type="color"] { padding: 2px; min-height: 32px; cursor: pointer; }
+
+/* Le sélecteur de fichier n'a pas besoin de la bordure d'un champ de saisie. */
+input[type="file"] {
+  border: 0; padding: 0; min-height: 0; background: none; font-size: var(--fs-sm);
+}
+
+/* Une case suivie de son libellé : alignement et curseur cohérents. */
+label.check {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 0;
+  cursor: pointer; font-weight: 400;
+}
+
 input::placeholder, textarea::placeholder { color: #9aa8a4; }
 input.error, select.error { border-color: var(--danger); }
 label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 4px; color: #334155; }

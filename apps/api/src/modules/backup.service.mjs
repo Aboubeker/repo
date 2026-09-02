@@ -160,13 +160,26 @@ export async function restoreBackup(id) {
     checksum: actual,
     sizeBytes: run.size_bytes,
     path: run.target_path,
+    /*
+     * Marche à suivre, affichée telle quelle dans l'interface.
+     *
+     * Elle mentionnait « npm run stop », un script qui n'existe pas : la
+     * procédure échouait dès la première ligne. L'arrêt se fait par Ctrl+C
+     * dans la fenêtre du serveur.
+     *
+     * L'étape de sauvegarde préalable est délibérément la première : c'est le
+     * seul moyen de revenir en arrière si l'archive restaurée ne contient pas
+     * ce que l'on croyait.
+     */
     procedure: [
-      '1. Passer l\'application en mode maintenance (npm run stop)',
-      '2. Vérifier qu\'aucune session utilisateur n\'est active',
-      `3. psql -h 127.0.0.1 -p ${process.env.PGPORT || 55432} -U ${process.env.PGUSER} ` +
+      '1. Sauvegarder l\'état actuel (onglet Sauvegardes › Lancer une sauvegarde),',
+      '   afin de pouvoir revenir en arrière si besoin.',
+      '2. Arrêter l\'application : Ctrl+C dans la fenêtre du serveur.',
+      '3. Vérifier que plus aucun poste n\'utilise l\'application.',
+      `4. psql -h 127.0.0.1 -p ${process.env.PGPORT || 55432} -U ${process.env.PGUSER} ` +
         `-d ${process.env.PGDATABASE} -f "${run.target_path}"`,
-      '4. Contrôler l\'intégrité : npm run test',
-      '5. Redémarrer l\'application (npm start)',
+      '5. Relancer l\'application : npm run app',
+      '6. Contrôler le résultat : onglet Sauvegardes › Contrôle d\'intégrité.',
     ],
   };
 }

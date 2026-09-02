@@ -2,13 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { api, setToken } from '../api.js';
 import { Field, ErrorAlert } from '../lib.jsx';
 
-const DEMO = [
-  ['admin', 'Administrateur — tous les droits'],
-  ['s.amrani', 'Réceptionniste — accueil et agenda'],
-  ['a.benali', 'Dr Benali — praticien (cardiologie)'],
-  ['c.compta', 'Facturation — factures et caisse'],
-];
-
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -83,17 +76,22 @@ export default function Login({ onLogin }) {
           {busy ? <span className="spinner" /> : 'Se connecter'}
         </button>
 
-        <div className="demo-accounts">
-          <b>Comptes de démonstration</b>
-          {DEMO.map(([u, d]) => (
-            <button type="button" key={u} onClick={() => fill(u)}>
-              <strong>{u}</strong> <span className="muted">— {d}</span>
-            </button>
-          ))}
-          <div className="muted" style={{ marginTop: 6, fontSize: 11 }}>
-            Mot de passe commun : Clinique2026!
+        {/* Comptes lus dans la base : la liste ne peut plus proposer un
+            identifiant absent, quelle que soit la version qui l'a peuplée. */}
+        {brand?.demo_accounts?.length > 0 && (
+          <div className="demo-accounts">
+            <b>Comptes de démonstration</b>
+            {brand.demo_accounts.map((a) => (
+              <button type="button" key={a.username} onClick={() => fill(a.username)}>
+                <strong>{a.username}</strong>
+                {a.role_label && <span className="muted"> — {a.role_label}</span>}
+              </button>
+            ))}
+            <div className="muted" style={{ marginTop: 6, fontSize: 11 }}>
+              Mot de passe commun : Clinique2026!
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="login-footer">
           Serveur local · Base de données {health?.database?.ok ? 'opérationnelle' : 'injoignable'}

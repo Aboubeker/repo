@@ -68,6 +68,30 @@ export function buildRouter() {
       phone:       s['clinic.phone'] || null,
       agrement:    s['clinic.agrement'] || null,
       timezone:    s['clinic.timezone'] || process.env.CLINIC_TZ || 'Africa/Algiers',
+
+      /*
+       * Comptes proposés sur l'écran de connexion.
+       *
+       * Ils étaient codés en dur côté interface. Une base peuplée par une
+       * version antérieure porte d'autres identifiants, et l'écran suggérait
+       * alors des comptes inexistants : l'utilisateur croyait à une panne
+       * d'authentification alors qu'il saisissait un nom absent de sa base.
+       * La liste est désormais lue dans la base, donc toujours exacte.
+       *
+       * Aucune information sensible : ni empreinte de mot de passe, ni état
+       * de verrouillage, ni horodatage de connexion. Seuls des comptes actifs
+       * et non supprimés, plafonnés à six — c'est une aide à la démonstration,
+       * pas un annuaire du personnel.
+       */
+      demo_accounts: (await query(
+        `SELECT u.username, coalesce(max(r.label), '') AS role_label
+           FROM user_account u
+           LEFT JOIN user_role ur ON ur.user_id = u.id
+           LEFT JOIN role r ON r.id = ur.role_id
+          WHERE u.status = 'ACTIVE' AND u.deleted_at IS NULL
+          GROUP BY u.id
+          ORDER BY (u.username = 'admin') DESC, u.username
+          LIMIT 6`)).rows,
     };
   }, { public: true });
 

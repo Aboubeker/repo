@@ -5,6 +5,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from '../src/main.mjs';
+import { readFileSync } from 'node:fs';
 import { closePool, one, query } from '../src/core/db.mjs';
 
 let server, base;
@@ -796,6 +797,53 @@ describe('Gouvernance', () => {
 
     const reset = await (await api('/api/theme/reset', { method: 'POST' })).json();
     assert.equal(reset.primary_color, '#0f766e');
+  });
+
+  test('les comptes proposés à la connexion existent réellement en base', async () => {
+    // Régression : la liste était codée en dur dans l'interface et proposait
+    // des identifiants absents d'une base peuplée par une version antérieure.
+    const b = await (await api('/api/branding', { as: null })).json();
+    assert.ok(Array.isArray(b.demo_accounts) && b.demo_accounts.length > 0);
+
+    const { rows } = await query(
+      `SELECT username FROM user_account WHERE status = 'ACTIVE' AND deleted_at IS NULL`);
+    const real = new Set(rows.map((r) => r.username));
+    for (const a of b.demo_accounts) {
+      assert.ok(real.has(a.username), `${a.username} est proposé mais absent de la base`);
+    }
+
+    // Aucune donnée sensible ne doit transiter par cette route publique.
+    for (const a of b.demo_accounts) {
+      assert.ok(!('password_hash' in a) && !('locked_until' in a));
+    }
+  });
+
+  test('chaque compte de démonstration peut réellement se connecter', async () => {
+    const b = await (await api('/api/branding', { as: null })).json();
+    for (const a of b.demo_accounts) {
+      const r = await api('/api/auth/login', { as: null, method: 'POST',
+        body: { username: a.username, password: 'Clinique2026!' } });
+      assert.equal(r.status, 201, `connexion impossible pour ${a.username}`);
+    }
+  });
+
+  test('la restauration vérifie l\'archive et ne cite que des commandes valides', async () => {
+    const run = await (await api('/api/admin/backups', { method: 'POST',
+      body: { kind: 'MANUAL' } })).json();
+
+    assert.equal((await api(`/api/admin/backups/${run.id}/restore`, {
+      method: 'POST', body: {} })).status, 400, 'la confirmation est obligatoire');
+
+    const d = await (await api(`/api/admin/backups/${run.id}/restore`, { method: 'POST',
+      body: { confirm: 'RESTAURER', reason: 'Test' } })).json();
+    assert.equal(d.verified, true);
+
+    // La procédure citait « npm run stop », un script inexistant.
+    const scripts = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url)));
+    for (const line of d.procedure) {
+      const m = line.match(/npm run ([a-z:]+)/);
+      if (m) assert.ok(scripts.scripts[m[1]], `« npm run ${m[1]} » n'existe pas`);
+    }
   });
 
   test('la personnalisation est refusée à un compte non administrateur', async () => {

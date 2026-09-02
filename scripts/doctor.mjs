@@ -167,9 +167,40 @@ if (!existsSync(dataDir)) {
       }
 
       try {
-        const { rows: [u] } = await client.query('SELECT count(*)::int AS n FROM user_account');
-        if (u.n === 0) bad('Aucun compte utilisateur : impossible de se connecter', 'npm run seed');
-        else ok('Comptes utilisateurs présents', `${u.n} comptes · mot de passe : Clinique2026!`);
+        /*
+         * Les identifiants réels sont listés, pas seulement comptés.
+         *
+         * L'écran de connexion propose des comptes de démonstration codés en
+         * dur ; une base peuplée par une version antérieure porte d'autres
+         * noms. L'utilisateur essayait alors « s.amrani » suggéré à l'écran
+         * alors que sa base contenait « s.martin », et concluait à une panne
+         * d'authentification. Afficher les comptes présents lève l'ambiguïté
+         * immédiatement.
+         */
+        const { rows: users } = await client.query(
+          `SELECT u.username, u.status,
+                  (u.locked_until IS NOT NULL AND u.locked_until > now()) AS locked
+             FROM user_account u
+            WHERE u.deleted_at IS NULL
+            ORDER BY u.username`).catch(() => ({ rows: null }));
+
+        if (!users) throw new Error('lecture impossible');
+        if (users.length === 0) {
+          bad('Aucun compte utilisateur : impossible de se connecter', 'npm run seed');
+        } else {
+          ok('Comptes utilisateurs présents',
+             `${users.length} comptes · mot de passe : Clinique2026!`);
+          for (const u of users) {
+            const flag = u.locked ? ' (VERROUILLÉ)'
+              : u.status !== 'ACTIVE' ? ` (${u.status})` : '';
+            console.log(`      · ${u.username}${flag}`);
+          }
+          const locked = users.filter((u) => u.locked || u.status === 'LOCKED');
+          if (locked.length) {
+            warn(`${locked.length} compte(s) verrouillé(s) après trop d'essais`,
+                 'Le verrou expire seul, ou : onglet Administration › Utilisateurs › Réactiver');
+          }
+        }
       } catch { bad('Table user_account absente', 'npm run migrate && npm run seed'); }
 
       await client.end();
