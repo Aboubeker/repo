@@ -96,6 +96,13 @@ if (-not (Test-Path $pgDir)) { Die "PostgreSQL embarque absent ($pgDir). Relance
 Ok "PostgreSQL embarque disponible"
 
 # ------------------------------------------------------------- 5. base locale
+# PostgreSQL refuse de demarrer si le dossier de donnees est protege par
+# l'antivirus ou synchronise (OneDrive). On previent plutot que d'echouer.
+if ($PSScriptRoot -match 'OneDrive') {
+  Warn "Le projet est dans un dossier OneDrive : la synchronisation peut corrompre"
+  Warn "le cluster PostgreSQL. Deplacez-le vers C:\dev\clinirdv si le demarrage echoue."
+}
+
 if ($Reset) {
   Step "Reinitialisation de la base"
   node scripts/db.mjs reset

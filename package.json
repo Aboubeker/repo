@@ -2,7 +2,10 @@
   "name": "clinirdv",
   "private": true,
   "version": "1.0.0",
-  "workspaces": ["apps/api", "apps/web"],
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
   "scripts": {
     "db:start": "node scripts/db.mjs start",
     "db:stop": "node scripts/db.mjs stop",
@@ -16,6 +19,18 @@
     "test": "node --env-file=.env --test apps/api/test/*.test.mjs",
     "setup": "npm run db:start && npm run migrate && npm run seed"
   },
-  "devDependencies": { "embedded-postgres": "18.4.0-beta.17" },
-  "dependencies": { "pg": "^8.13.1" }
+  "devDependencies": {
+    "embedded-postgres": "18.4.0-beta.17"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "allowScripts": {
+    "@embedded-postgres/linux-x64": true,
+    "@embedded-postgres/linux-arm64": true,
+    "@embedded-postgres/darwin-x64": true,
+    "@embedded-postgres/darwin-arm64": true,
+    "@embedded-postgres/windows-x64": true,
+    "esbuild": true
+  }
 }

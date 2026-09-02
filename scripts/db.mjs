@@ -45,8 +45,22 @@ const PASSWORD = process.env.PGPASSWORD || 'clinirdv';
 const DB = process.env.PGDATABASE || 'clinirdv';
 const LOG = resolve(ROOT, '.pgdata.log');
 
-function run(cmd, args, opts = {}) {
-  const r = spawnSync(resolve(BIN, cmd + EXE), args, { encoding: 'utf8', ...opts });
+/**
+ * Exécute un utilitaire PostgreSQL.
+ *
+ * `detach: true` est indispensable pour « pg_ctl start » : le serveur lancé
+ * hérite des tubes d'entrée/sortie du processus parent et ne les referme
+ * jamais. Sous Windows, spawnSync attendrait donc indéfiniment la fin d'un flux
+ * qui reste ouvert tant que PostgreSQL tourne. On coupe les tubes (`ignore`) :
+ * la sortie du serveur part déjà dans le fichier journal passé via « -l ».
+ */
+function run(cmd, args, { detach = false, ...opts } = {}) {
+  const r = spawnSync(resolve(BIN, cmd + EXE), args, {
+    encoding: 'utf8',
+    windowsHide: true,
+    ...(detach ? { stdio: 'ignore' } : {}),
+    ...opts,
+  });
   if (r.error) throw r.error;
   return r;
 }
@@ -76,8 +90,13 @@ async function start() {
   initCluster();
   if (!isRunning()) {
     console.log(`• Démarrage de PostgreSQL sur 127.0.0.1:${PORT}…`);
-    const r = run('pg_ctl', ['-D', DATA, '-l', LOG, '-w', '-o', `-p ${PORT}`, 'start']);
-    if (r.status !== 0) { console.error(r.stdout, r.stderr); process.exit(1); }
+    const r = run('pg_ctl', ['-D', DATA, '-l', LOG, '-w', '-o', `-p ${PORT}`, 'start'],
+      { detach: true });
+    if (r.status !== 0) {
+      console.error(`Échec du démarrage de PostgreSQL (code ${r.status}).`);
+      console.error(`Consultez le journal : ${LOG}`);
+      process.exit(1);
+    }
   }
   await ensureDatabase();
   console.log('✓ PostgreSQL prêt.');
