@@ -23,7 +23,22 @@ import { integrityCheck } from './modules/backup.service.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const WEB_DIR = resolve(ROOT, 'apps/web/dist');
 const PORT = Number(process.env.PORT || 3001);
-const HOST = process.env.HOST || '0.0.0.0';
+/**
+ * Par défaut on écoute sur « :: » et non « 0.0.0.0 ».
+ *
+ * Sous Windows, le navigateur résout « localhost » en IPv6 (::1) avant IPv4.
+ * Un serveur lié à 0.0.0.0 n'écoute qu'en IPv4 : Chrome tente ::1, échoue, et
+ * affiche ERR_CONNECTION_REFUSED alors que le serveur tourne. Node accepte les
+ * deux familles lorsqu'il est lié à « :: » (dual-stack), ce qui rend
+ * http://localhost:PORT joignable dans tous les cas.
+ */
+const HOST = (() => {
+  const h = process.env.HOST;
+  // « 0.0.0.0 » (valeur historique des .env déjà déployés) est promu en « :: »
+  // pour couvrir IPv4 *et* IPv6 : même portée d'écoute, mais localhost marche.
+  if (!h || h === '0.0.0.0') return '::';
+  return h;
+})();
 
 export function buildRouter() {
   const router = new Router();

@@ -42,6 +42,16 @@ function readEnvFile() {
   return { missing: false, hasBom, vars, path: p };
 }
 
+/** Teste si un port TCP accepte une connexion sur l'hôte indiqué. */
+const probeHost = (host, port, timeout = 1500) => new Promise((res) => {
+  const s = connect({ host, port });
+  const done = (v) => { s.destroy(); res(v); };
+  s.setTimeout(timeout);
+  s.on('connect', () => done(true));
+  s.on('timeout', () => done(false));
+  s.on('error', () => done(false));
+});
+
 /** Teste si un port TCP accepte une connexion sur 127.0.0.1. */
 const probePort = (port, timeout = 1500) => new Promise((res) => {
   const s = connect({ host: '127.0.0.1', port });
@@ -185,6 +195,17 @@ if (appUp) {
     const body = await res.json().catch(() => null);
     if (res.ok) {
       ok(`L'application répond sur http://localhost:${PORT}`, body?.status ? `état : ${body.status}` : '');
+
+      // Le navigateur (surtout sous Windows) résout « localhost » en IPv6 avant
+      // IPv4 : un serveur qui n'écoute qu'en IPv4 donne ERR_CONNECTION_REFUSED
+      // alors qu'il tourne. On vérifie donc les deux familles d'adresses.
+      const v6 = await probeHost('::1', PORT);
+      if (!v6) {
+        warn('Le serveur n\'écoute pas en IPv6 (::1)');
+        console.log(`      ${c(33, '→')} Le navigateur peut refuser http://localhost:${PORT}.`);
+        console.log(`      ${c(33, '→')} Utilisez http://127.0.0.1:${PORT}, ou mettez HOST=:: dans .env.`);
+      } else ok('Joignable en IPv4 et IPv6', 'http://localhost fonctionne');
+
       console.log(`\n  ${c(32, bold('L\'application est en ligne.'))}`);
       console.log(`  Ouvrez ${bold(`http://localhost:${PORT}`)} — identifiant ${bold('admin')} / ${bold('Clinique2026!')}\n`);
     } else {
