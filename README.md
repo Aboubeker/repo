@@ -14,6 +14,7 @@ fonctionnalité en ligne, aucune dépendance externe à l'exécution.
 | [04 — Plan de développement](docs/04-plan-de-developpement.md) | 9 phases, dépendances, jalons, MoSCoW, risques, charge (~700 j/h) |
 | [05 — Points techniques critiques](docs/05-points-techniques-critiques.md) | Auth locale + MFA, gestion d'erreurs, sauvegarde/restauration, RGPD, exploitation |
 | [06 — Interface utilisateur](docs/06-interface-utilisateur.md) | Wireframes ASCII des 12 écrans clés, raccourcis, ergonomie, impressions |
+| [07 — Améliorations & adaptation Algérie](docs/07-ameliorations-design-ihm-admin-algerie.md) | Refonte visuelle, simplification IHM, tableau de bord admin, conformité locale |
 
 ## Résumé exécutif
 
