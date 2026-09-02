@@ -29,3 +29,83 @@ facturation et caisse · rapports · authentification locale avec MFA et RBAC ·
 
 **Trajectoire** : MVP agenda opérationnel à S26, mise en production à S46, avec un pilote sur un
 service avant généralisation.
+
+---
+
+## Implémentation de référence livrée avec la spécification
+
+Le dépôt ne contient pas que des documents : une **application complète et fonctionnelle**
+accompagne la spécification, afin que l'équipe puisse démarrer sur du code exécutable.
+
+### Démarrage (aucune connexion Internet requise après `npm install`)
+
+```bash
+npm install              # dépendances (pg, react, vite, postgres embarqué)
+npm run setup            # crée le cluster PostgreSQL local (.pgdata, port 55432)
+npm run migrate          # applique infra/db/001_schema.sql puis 002_credit_notes.sql
+npm run seed             # référentiels + jeu de démonstration
+npm run build:web        # compile l'interface dans apps/web/dist
+npm start                # serveur applicatif sur http://127.0.0.1:3001
+```
+
+Développement de l'interface : `npm -w @clinirdv/web run dev` (port 5173, proxy `/api` → 3001).
+Tests : `npm test` (**49 tests**, `node --test`).
+Cycle de vie de la base : `node scripts/db.mjs start|stop|status|reset`.
+
+### Comptes de démonstration
+
+Mot de passe commun : **`Clinique2026!`**
+
+| Identifiant | Rôle | Usage |
+|---|---|---|
+| `admin` | ADMIN | Toutes permissions, administration, sauvegardes |
+| `s.martin`, `l.dubois` | RECEPTION | Accueil, agenda, file d'attente, encaissement |
+| `a.bernard`, `m.leroy`, `n.aziz` | PRACTITIONER | Agenda personnel, dossier médical, consultation |
+| `c.compta` | BILLING | Facturation, caisse, impayés |
+
+Praticiens : DR-001 BERNARD (cardiologie), DR-002 LEROY (médecine générale),
+DR-003 AZIZ (dermatologie), DR-004 MOREAU (kinésithérapie), DR-005 PETIT (pédiatrie).
+Formats d'identifiants : patients `P-2026-000001`, rendez-vous `RDV-2026-000001`,
+factures `F-2026-00001`, avoirs `AV-2026-00001`.
+
+### Contenu de l'implémentation
+
+- `infra/db/001_schema.sql` — schéma complet : 40+ tables, contraintes `EXCLUDE USING gist`
+  anti-double-booking (praticien, patient, salle, équipement), 8 triggers, vues
+  `v_appointment_full` et `v_patient_summary`, fonctions `immutable_unaccent()` et
+  `fn_slot_is_available()`.
+- `infra/db/002_credit_notes.sql` — migration : autorise les montants négatifs pour les avoirs
+  (`invoice_amount_sign_check` remplace `invoice_total_amount_check`).
+- `apps/api/` — API HTTP : authentification (JWT 15 min + refresh rotatif en cookie
+  `HttpOnly`), RBAC à 22 permissions, patients, praticiens et disponibilités, moteur de
+  créneaux, rendez-vous et file d'attente, ressources, facturation et caisse, rapports et
+  export CSV, administration, sauvegarde/restauration, journal d'audit.
+- `apps/web/` — interface React : connexion, tableau de bord, agenda jour/semaine, assistant
+  de prise de rendez-vous, dossier patient, file d'attente temps réel, praticiens,
+  ressources, facturation/caisse/impayés, rapports, administration.
+- `apps/api/test/api.test.mjs` — suite de tests couvrant les règles critiques
+  (double-booking, concurrence, immutabilité des factures, permissions, audit).
+
+### Écarts assumés entre la spécification et l'implémentation de référence
+
+La spécification décrit la cible de production ; l'implémentation privilégie l'exécution
+immédiate dans un environnement sans Docker ni accès réseau. Les écarts sont volontaires
+et documentés :
+
+| Sujet | Spécification (cible) | Implémentation livrée | Raison |
+|---|---|---|---|
+| Base de données | PostgreSQL 16 en conteneur | PostgreSQL 18.4 embarqué via npm (`.pgdata`, port 55432) | Docker et les dépôts APT indisponibles sur le poste de développement |
+| Cadre applicatif | NestJS + Prisma | Node.js natif ESM (`.mjs`), routeur maison, SQL explicite ; unique dépendance runtime : `pg` | Zéro dépendance superflue, lisibilité du SQL critique (contraintes temporelles) |
+| Interface | React + TypeScript | React + JSX (Vite) | Rapidité de mise au point ; migration TS sans rupture |
+| Sauvegarde | `pg_dump` / PITR WAL | Export SQL natif (`nativeDump()`) + empreinte SHA-256 | `pg_dump` n'est pas fourni par la distribution PostgreSQL embarquée |
+| Verrouillage agenda | Contrainte GiST seule | `pg_advisory_xact_lock(hashtext('appt:<praticien>'))` **puis** contrainte GiST | Le verrouillage `FOR UPDATE` seul provoquait des interblocages sous forte concurrence |
+
+En cas de divergence, **le schéma réel (`infra/db/001_schema.sql` + `002_credit_notes.sql`)
+fait foi** sur le document 02.
+
+### Passage en production
+
+Pour un déploiement réel, remplacer le cluster embarqué par un PostgreSQL installé sur le
+serveur (mêmes fichiers SQL), placer l'API derrière Nginx en TLS interne, activer les
+sauvegardes planifiées (`cron` sur `/api/admin/backups`) et suivre le document 05 pour le
+durcissement, la rotation des secrets et les procédures de restauration.
