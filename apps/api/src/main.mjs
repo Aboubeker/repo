@@ -5,7 +5,7 @@
 import http from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Router, createHandler } from './core/http.mjs';
 import { healthcheck, closePool } from './core/db.mjs';
@@ -99,7 +99,28 @@ export function createServer() {
   return http.createServer(handler);
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${resolve(process.argv[1])}`;
+/**
+ * Détection « ce fichier est-il le point d'entrée ? ».
+ *
+ * La concaténation « file:// + chemin » est incorrecte sous Windows : argv[1]
+ * vaut « C:\...\main.mjs » alors que import.meta.url vaut
+ * « file:///C:/.../main.mjs ». La comparaison échouait donc toujours, le
+ * serveur ne se lançait jamais et le processus se terminait en silence.
+ * pathToFileURL() produit la forme canonique sur toutes les plateformes.
+ */
+const isMain = process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+// Filet de sécurité : si la détection échouait malgré tout (chemin exotique,
+// lien symbolique, lecteur réseau), le processus se terminerait sans rien dire.
+// Mieux vaut un message explicite qu'un « connexion refusée » inexpliqué.
+if (!isMain && process.argv[1] && /main\.mjs$/.test(process.argv[1])) {
+  console.error('\n  ✗ Le serveur n\'a pas pu s\'initialiser (point d\'entrée non reconnu).');
+  console.error(`    argv[1]        : ${process.argv[1]}`);
+  console.error(`    import.meta.url: ${import.meta.url}`);
+  console.error('    Signalez ces deux lignes : il s\'agit d\'un problème de portabilité.\n');
+  process.exit(1);
+}
 if (isMain) {
   const server = createServer();
 

@@ -13,10 +13,15 @@ import { notFound, unprocessable } from '../core/errors.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const BACKUP_DIR = process.env.BACKUP_DIR || resolve(ROOT, 'storage/backups');
-const PG_BIN = resolve(ROOT, 'node_modules/@embedded-postgres/linux-x64/native/bin');
+// Le paquet PostgreSQL embarqué dépend de la plateforme : le résoudre
+// dynamiquement évite de chercher des binaires Linux sous Windows ou macOS.
+const PG_PLATFORM = { linux: 'linux', darwin: 'darwin', win32: 'windows' }[process.platform];
+const PG_ARCH = { x64: 'x64', arm64: 'arm64', ia32: 'ia32' }[process.arch];
+const PG_BIN = resolve(ROOT, `node_modules/@embedded-postgres/${PG_PLATFORM}-${PG_ARCH}/native/bin`);
+const EXE = process.platform === 'win32' ? '.exe' : '';
 
 function pgTool(name) {
-  const local = resolve(PG_BIN, name);
+  const local = resolve(PG_BIN, name + EXE);
   return existsSync(local) ? local : name;   // repli sur le binaire système
 }
 
