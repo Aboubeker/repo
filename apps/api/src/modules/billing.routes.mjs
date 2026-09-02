@@ -1,6 +1,7 @@
 /** Module Facturation : factures, paiements, caisse, impayés. */
 import { many, one, tx } from '../core/db.mjs';
 import { notFound, unprocessable, badRequest } from '../core/errors.mjs';
+import { fmtMoney } from '../core/money.mjs';
 import { writeAudit } from '../core/audit.mjs';
 import { validate } from '../core/validate.mjs';
 
@@ -172,7 +173,7 @@ export function registerBillingRoutes(router) {
       return r;
     });
     await writeAudit(ctx, { action: 'ISSUE', entity: 'invoice', entityId: inv.id,
-      summary: `Facture ${inv.number} émise — ${inv.total_amount} €` });
+      summary: `Facture ${inv.number} émise — ${fmtMoney(inv.total_amount)}` });
     return inv;
   }, { permission: 'invoice.write' });
 
@@ -226,7 +227,7 @@ export function registerBillingRoutes(router) {
       if (inv.status === 'DRAFT')
         throw unprocessable('La facture doit être émise avant tout encaissement.', 'INVOICE_NOT_ISSUED');
       if (d.amount > inv.balance + 0.001)
-        throw unprocessable(`Le montant dépasse le solde dû (${inv.balance} €).`, 'AMOUNT_EXCEEDS_BALANCE',
+        throw unprocessable(`Le montant dépasse le solde dû (${fmtMoney(inv.balance)}).`, 'AMOUNT_EXCEEDS_BALANCE',
           { balance: inv.balance });
 
       const { rows: [session] } = await c.query(
@@ -238,7 +239,7 @@ export function registerBillingRoutes(router) {
       return p;
     });
     await writeAudit(ctx, { action: 'PAYMENT', entity: 'invoice', entityId: ctx.params.id,
-      summary: `Paiement ${d.amount} € (${d.method})` });
+      summary: `Paiement ${fmtMoney(d.amount)} (${d.method})` });
     return { payment: pay, invoice: await one('SELECT * FROM invoice WHERE id = $1', [ctx.params.id]) };
   }, { permission: 'payment.write' });
 
@@ -266,7 +267,7 @@ export function registerBillingRoutes(router) {
       `INSERT INTO cash_session (opened_by, opening_float, workstation) VALUES ($1,$2,$3) RETURNING *`,
       [ctx.user.sub, d.openingFloat, d.workstation]);
     await writeAudit(ctx, { action: 'CASH_OPEN', entity: 'cash_session', entityId: s.id,
-      summary: `Ouverture de caisse — fond ${d.openingFloat} €` });
+      summary: `Ouverture de caisse — fond ${fmtMoney(d.openingFloat)}` });
     return s;
   }, { permission: 'payment.write' });
 
@@ -292,7 +293,7 @@ export function registerBillingRoutes(router) {
       return r;
     });
     await writeAudit(ctx, { action: 'CASH_CLOSE', entity: 'cash_session', entityId: s.id,
-      summary: `Clôture de caisse — écart ${s.discrepancy} €` });
+      summary: `Clôture de caisse — écart ${fmtMoney(s.discrepancy)}` });
     return s;
   }, { permission: 'payment.write' });
 

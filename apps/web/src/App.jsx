@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api, setToken, setUnauthorizedHandler } from './api.js';
-import { can, useToast, Spinner, useDensity, applyStoredDensity } from './lib.jsx';
+import { can, useToast, Spinner, useDensity, applyStoredDensity,
+         installRipple } from './lib.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Calendar from './pages/Calendar.jsx';
@@ -30,7 +31,7 @@ const NAV_DAILY = [
     badge: 'waiting' },
   { id: 'calendar',  label: 'Agenda',        icon: '▤', perm: 'appointment.read' },
   { id: 'patients',  label: 'Patients',      icon: '⚕', perm: 'patient.read' },
-  { id: 'billing',   label: 'Facturation',   icon: '₪', perm: 'billing.read' },
+  { id: 'billing',   label: 'Facturation',   icon: '⌸', perm: 'billing.read' },
 ];
 
 const NAV_CONFIG = [
@@ -59,6 +60,7 @@ export default function App() {
   // Reprise de session au chargement (jeton de rafraîchissement en cookie)
   useEffect(() => {
     applyStoredDensity();
+    installRipple();
     // Le nom de l'établissement vient de la base : une clinique qui installe
     // le logiciel ne doit pas avoir à recompiler pour voir son propre nom.
     api.branding().then(setBrand).catch(() => {});

@@ -108,6 +108,42 @@ describe('Monnaie', () => {
     assert.ok(!s.includes(','), 'pas de décimale sur un prix de consultation');
     assert.ok(!/€/.test(s), 'aucune trace d\'euro');
   });
+
+  test('le symbole est « DA », précédé d\'une espace insécable', () => {
+    assert.equal(locale.CURRENCY_SYMBOL, 'DA');
+    assert.equal(locale.fmtMoney(1500), '1\u202f500\u00a0DA');
+    assert.ok(!/DZD/.test(locale.fmtMoney(1500)),
+      'le code ISO ne doit pas remplacer le symbole');
+  });
+
+  test('séparateur de milliers en espace fine insécable', () => {
+    assert.equal(locale.fmtAmount(1234567), '1\u202f234\u202f567');
+  });
+
+  test('les centimes n\'apparaissent que s\'ils sont non nuls', () => {
+    assert.equal(locale.fmtMoney(1250.5), '1\u202f250,50\u00a0DA');
+    assert.equal(locale.fmtMoney(1250), '1\u202f250\u00a0DA');
+  });
+
+  test('les montants négatifs (avoirs) restent lisibles', () => {
+    assert.equal(locale.fmtMoney(-2500), '-2\u202f500\u00a0DA');
+  });
+
+  test('une valeur non numérique ne casse pas l\'affichage', () => {
+    assert.equal(locale.fmtMoney(undefined), '0\u00a0DA');
+    assert.equal(locale.fmtMoney(NaN), '0\u00a0DA');
+  });
+
+  test('le serveur et le front produisent exactement le même format', async () => {
+    // Les résumés d'audit sont écrits définitivement en base : un écart de
+    // format entre les deux implémentations resterait gravé dans l'historique.
+    const server = await import(
+      pathToFileURL(join(ROOT, 'apps/api/src/core/money.mjs')).href);
+    for (const v of [0, 1500, 3500, 120000, 1234567, -2500, 1250.5, 0.5]) {
+      assert.equal(server.fmtMoney(v), locale.fmtMoney(v),
+        `divergence de formatage pour ${v}`);
+    }
+  });
   test('montant en toutes lettres pour les quittances', () => {
     assert.equal(locale.amountToWords(0), 'zéro dinar algérien');
     assert.match(locale.amountToWords(3500), /trois mille cinq cents dinars/);
@@ -132,6 +168,20 @@ describe('Absence de références à l\'euro et au calendrier européen', () => 
   test('aucun formatage en euros dans le front', () => {
     for (const f of ['apps/web/src/lib.jsx', 'apps/web/src/locale.js']) {
       assert.ok(!/currency:\s*'EUR'/.test(read(f)), `${f} référence encore l'euro`);
+    }
+  });
+
+  test('plus aucun symbole € dans le code applicatif', () => {
+    // Le symbole avait survécu dans les résumés d'audit du serveur, dans une
+    // invite de saisie et dans plusieurs icônes d'écran vide.
+    const files = [
+      'apps/web/src/lib.jsx', 'apps/web/src/locale.js', 'apps/web/src/App.jsx',
+      'apps/web/src/pages/Billing.jsx', 'apps/web/src/pages/Patients.jsx',
+      'apps/web/src/pages/Dashboard.jsx', 'apps/web/src/pages/PatientFile.jsx',
+      'apps/api/src/modules/billing.routes.mjs',
+    ];
+    for (const f of files) {
+      assert.ok(!read(f).includes('€'), `${f} contient encore le symbole €`);
     }
   });
 

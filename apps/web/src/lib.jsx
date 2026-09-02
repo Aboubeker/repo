@@ -120,13 +120,24 @@ export const Empty = ({ icon = '∅', text, action }) => (
   </div>
 );
 
-export const Stat = ({ label, value, hint, accent }) => (
-  <div className={`stat ${accent ? `accent-${accent}` : ''}`}>
-    <div className="label">{label}</div>
-    <div className="value">{value}</div>
-    {hint && <div className="hint">{hint}</div>}
-  </div>
-);
+export const Stat = ({ label, value, hint, accent, onClick, title }) => {
+  const cls = `stat ${accent ? `accent-${accent}` : ''} ${onClick ? 'clickable' : ''}`;
+  const body = (
+    <>
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+      {hint && <div className="hint">{hint}</div>}
+    </>
+  );
+  // Un compteur cliquable doit être un vrai bouton : accessible au clavier et
+  // annoncé comme actionnable par les lecteurs d'écran.
+  return onClick
+    ? <button type="button" className={cls} onClick={onClick} title={title}
+              style={{ textAlign: 'left', font: 'inherit', color: 'inherit' }}>
+        {body}
+      </button>
+    : <div className={cls}>{body}</div>;
+};
 
 export function Modal({ title, children, onClose, footer, wide }) {
   return (
@@ -309,4 +320,68 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Confirmer',
       {children}
     </Modal>
   );
+}
+
+/* ======================================================================
+   Retour visuel : squelettes, progression, onde au clic
+   ====================================================================== */
+
+/**
+ * Squelette de chargement.
+ *
+ * Préférable au disque tournant : la structure de la page reste en place, ce
+ * qui supprime le sursaut de mise en page quand les données arrivent. Sur un
+ * réseau local la réponse est quasi immédiate, mais les rapports et les
+ * sauvegardes prennent plusieurs secondes.
+ */
+export const SkeletonText = ({ lines = 3 }) => (
+  <div aria-hidden="true">
+    {Array.from({ length: lines }, (_, i) => (
+      <div key={i} className={`skeleton skeleton-line ${
+        i === lines - 1 ? 'w60' : i % 3 === 1 ? 'w40' : ''}`} />
+    ))}
+  </div>
+);
+
+/** Squelette de tableau, calé sur le nombre réel de colonnes. */
+export const SkeletonTable = ({ rows = 6, cols = 5 }) => (
+  <table aria-busy="true">
+    <tbody>
+      {Array.from({ length: rows }, (_, r) => (
+        <tr key={r}>
+          {Array.from({ length: cols }, (_, c) => (
+            <td key={c}><div className="skeleton skeleton-line" /></td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
+/**
+ * Barre de progression indéterminée, en haut de la fenêtre.
+ * Pour les opérations longues : sauvegarde, restauration, export.
+ */
+export const TopProgress = ({ active }) => active
+  ? <div className="top-progress" role="progressbar" aria-label="Traitement en cours">
+      <i />
+    </div>
+  : null;
+
+/**
+ * Onde au clic : positionne l'origine du dégradé sous le curseur.
+ *
+ * L'effet est purement CSS ; ce gestionnaire ne fait que renseigner deux
+ * variables. Installé une seule fois sur le document plutôt que sur chaque
+ * bouton — l'application en compte plusieurs centaines à l'écran.
+ */
+export function installRipple() {
+  if (typeof document === 'undefined') return;
+  document.addEventListener('pointerdown', (e) => {
+    const btn = e.target.closest?.('button.btn');
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    btn.style.setProperty('--rx', `${((e.clientX - r.left) / r.width) * 100}%`);
+    btn.style.setProperty('--ry', `${((e.clientY - r.top) / r.height) * 100}%`);
+  }, { passive: true });
 }

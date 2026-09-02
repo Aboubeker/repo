@@ -63,7 +63,7 @@ function Invoices({ user, go }) {
         </div>
         <div className="card-body tight">
           {!data ? <Spinner /> : data.items.length === 0
-            ? <Empty icon="€" text="Aucune facture pour ce filtre." /> : (
+            ? <Empty icon="▤" text="Aucune facture pour ce filtre." /> : (
             <table>
               <thead><tr><th>Numéro</th><th>Date</th><th>Patient</th><th>Praticien</th>
                 <th className="num">Total</th><th className="num">Payé</th>
@@ -341,7 +341,7 @@ function Cash({ user }) {
   if (!d) return <Spinner />;
 
   const open = async () => {
-    const f = prompt('Fond de caisse initial (€) :', '100');
+    const f = prompt('Fond de caisse initial (DA) :', '5000');
     if (f === null) return;
     setBusy(true);
     try { await api.openCash({ openingFloat: Number(f) }); toast.success('Caisse ouverte.'); load(); }

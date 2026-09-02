@@ -69,7 +69,7 @@ export default function Patients({ user, go }) {
                       {Number(p.outstanding_balance) > 0
                         ? <span style={{ color: 'var(--danger)', fontWeight: 600 }}>
                             {fmtMoney(p.outstanding_balance)}</span>
-                        : <span className="muted">0,00 €</span>}</td>
+                        : <span className="muted">{fmtMoney(0)}</span>}</td>
                     <td>
                       {Number(p.critical_allergy_count) > 0 &&
                         <span className="badge red" title="Allergie critique">⚠</span>}

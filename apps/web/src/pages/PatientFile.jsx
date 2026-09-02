@@ -212,7 +212,7 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
         <div className="card">
           <div className="card-head"><h3>Factures</h3></div>
           <div className="card-body tight">
-            {d.invoices.length === 0 ? <Empty icon="€" text="Aucune facture." /> : (
+            {d.invoices.length === 0 ? <Empty icon="▤" text="Aucune facture." /> : (
               <table>
                 <thead><tr><th>Numéro</th><th>Date</th><th className="num">Total</th>
                   <th className="num">Payé</th><th className="num">Solde</th><th>Statut</th></tr></thead>

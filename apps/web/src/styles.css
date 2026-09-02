@@ -527,9 +527,22 @@ kbd { font-family: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 
 /* --- Accessibilité ------------------------------------------------------ */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Respect de « réduire les animations » (Windows : Paramètres → Accessibilité
+   → Effets visuels). Les boucles infinies sont explicitement arrêtées : les
+   neutraliser par une durée quasi nulle les ferait au contraire tourner à
+   très haute fréquence, ce qui est pire que l'animation d'origine. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .01ms !important;
-    transition-duration: .01ms !important; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .login-page { animation: none !important; }
+  .top-progress > i, .skeleton, .cal-now::before, .health-item.bad .hdot {
+    animation: none !important;
+  }
+  .skeleton { background: var(--surface-3); }
 }
 
 /* --- Impression : factures et ordonnances ------------------------------- */
@@ -555,3 +568,195 @@ kbd { font-family: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 
 }
 .sidebar-nav .group-toggle:hover { color: #b7c4c1; background: none; }
 .sidebar-nav .group-toggle .ico { font-size: 10px; }
+
+/* ======================================================================
+   Dynamisme : mouvement, profondeur, retour visuel
+   ----------------------------------------------------------------------
+   Le mouvement sert ici à trois choses seulement : signaler qu'une action a
+   été prise en compte, guider le regard vers ce qui vient d'apparaître, et
+   rendre perceptible l'activité en cours. Aucune animation décorative — sur
+   un poste utilisé huit heures par jour, l'agitation gratuite fatigue.
+   Toutes les durées restent sous 250 ms et l'ensemble est neutralisé par
+   prefers-reduced-motion (déclaré plus haut).
+   ====================================================================== */
+
+/* --- Courbes d'accélération -------------------------------------------- */
+:root {
+  --ease-out:   cubic-bezier(.22, .61, .36, 1);
+  --ease-spring: cubic-bezier(.34, 1.36, .64, 1);  /* léger dépassement */
+  --t-fast: .13s;
+  --t-base: .19s;
+}
+
+/* --- Entrée des contenus -----------------------------------------------
+   Décalage progressif : les cartes d'une grille n'apparaissent pas toutes
+   au même instant, ce qui donne une direction de lecture. */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+.content > * { animation: riseIn var(--t-base) var(--ease-out) both; }
+.grid > *:nth-child(1) { animation: riseIn var(--t-base) var(--ease-out) both; }
+.grid > *:nth-child(2) { animation: riseIn var(--t-base) 40ms var(--ease-out) both; }
+.grid > *:nth-child(3) { animation: riseIn var(--t-base) 80ms var(--ease-out) both; }
+.grid > *:nth-child(4) { animation: riseIn var(--t-base) 120ms var(--ease-out) both; }
+.grid > *:nth-child(5) { animation: riseIn var(--t-base) 160ms var(--ease-out) both; }
+
+/* --- Cartes : relief au survol ------------------------------------------ */
+.card, .stat {
+  transition: box-shadow var(--t-base) var(--ease-out),
+              transform var(--t-base) var(--ease-out),
+              border-color var(--t-base) var(--ease-out);
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+.stat:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+
+/* Les compteurs sont cliquables : le curseur et le relief doivent le dire. */
+.stat.clickable { cursor: pointer; }
+.stat.clickable:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
+
+/* --- Boutons : réaction physique ---------------------------------------- */
+button.btn:active:not(:disabled) { transform: translateY(1px); }
+button.btn.primary:hover:not(:disabled) {
+  box-shadow: 0 3px 10px rgba(15, 118, 110, .3);
+}
+button.btn.danger:hover:not(:disabled) {
+  box-shadow: 0 3px 10px rgba(185, 28, 28, .28);
+}
+
+/* Onde au clic : confirme la prise en compte même si le serveur tarde. */
+button.btn { position: relative; overflow: hidden; }
+button.btn::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%),
+              currentColor 0%, transparent 55%);
+  opacity: 0; transition: opacity .45s var(--ease-out);
+  pointer-events: none;
+}
+button.btn:active::after { opacity: .16; transition: none; }
+
+/* --- Navigation : indicateur coulissant --------------------------------- */
+.sidebar-nav button {
+  position: relative;
+  transition: background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              padding-left var(--t-fast) var(--ease-out);
+}
+.sidebar-nav button::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  width: 3px; height: 0; border-radius: 0 3px 3px 0;
+  background: #5eead4; transform: translateY(-50%);
+  transition: height var(--t-base) var(--ease-spring);
+}
+.sidebar-nav button.active::before { height: 62%; }
+.sidebar-nav button:hover:not(.active) { padding-left: 14px; }
+
+/* --- Onglets : soulignement animé --------------------------------------- */
+.tabs button { position: relative; transition: color var(--t-fast) var(--ease-out); }
+.tabs button::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: var(--primary); transform: scaleX(0);
+  transition: transform var(--t-base) var(--ease-out);
+}
+.tabs button.active::after { transform: scaleX(1); }
+.tabs button.active { border-bottom-color: transparent; }
+
+/* --- Lignes de tableau --------------------------------------------------- */
+tbody tr { transition: background var(--t-fast) var(--ease-out); }
+tbody tr.clickable:hover { background: var(--primary-soft); }
+tbody tr.clickable:active { background: var(--primary-light); }
+
+/* --- Badges et compteurs ------------------------------------------------- */
+/* Le compteur de file d'attente attire l'œil à l'incrément, une seule fois. */
+@keyframes countBump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.32); }
+  100% { transform: scale(1); }
+}
+.nav-count { animation: countBump .32s var(--ease-spring); }
+
+/* --- Modales et panneaux ------------------------------------------------- */
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(-12px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes drawerIn { from { transform: translateX(100%); } to { transform: none; } }
+
+.overlay, .drawer-overlay { animation: overlayIn var(--t-fast) var(--ease-out); }
+.modal  { animation: modalIn var(--t-base) var(--ease-spring); }
+.drawer { animation: drawerIn var(--t-base) var(--ease-out); }
+
+/* --- Créneaux horaires --------------------------------------------------- */
+.slot-btn { transition: background var(--t-fast) var(--ease-out),
+                        border-color var(--t-fast) var(--ease-out),
+                        transform var(--t-fast) var(--ease-out); }
+.slot-btn:hover { transform: translateY(-1px); }
+.slot-btn.selected { animation: countBump .28s var(--ease-spring); }
+
+/* --- Rendez-vous dans l'agenda ------------------------------------------- */
+.cal-event { transition: box-shadow var(--t-fast) var(--ease-out),
+                         transform var(--t-fast) var(--ease-out); }
+.cal-event:hover { transform: scale(1.022); }
+
+/* Le trait de l'heure courante respire : rappelle que la vue est vivante. */
+@keyframes nowPulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+.cal-now::before { animation: nowPulse 2.4s ease-in-out infinite; }
+
+/* --- Chargement : squelettes -------------------------------------------- */
+/* Préférables au disque tournant : ils préservent la structure de la page et
+   suppriment le sursaut de mise en page à l'arrivée des données. */
+@keyframes shimmer { to { background-position-x: -200%; } }
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--surface-3) 8%, var(--surface-2) 18%, var(--surface-3) 33%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+  border-radius: var(--radius-sm); color: transparent !important;
+}
+.skeleton-line { height: 11px; margin: 7px 0; }
+.skeleton-line.w60 { width: 60%; }
+.skeleton-line.w40 { width: 40%; }
+
+/* --- Barre de progression indéterminée ---------------------------------- */
+/* Affichée en haut de la fenêtre pendant les requêtes longues (sauvegarde,
+   restauration, rapports) : l'utilisateur voit que le poste travaille. */
+@keyframes barSlide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+.top-progress {
+  position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 300;
+  background: var(--primary-light); overflow: hidden;
+}
+.top-progress > i {
+  display: block; width: 25%; height: 100%; background: var(--primary);
+  animation: barSlide 1.1s var(--ease-out) infinite;
+}
+
+/* --- Notifications ------------------------------------------------------- */
+.toast {
+  animation: toastIn .26s var(--ease-spring);
+  border-left: 3px solid rgba(255, 255, 255, .35);
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(28px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- Bandeaux d'action --------------------------------------------------- */
+.action-strip { animation: riseIn var(--t-base) var(--ease-out) both; }
+.action-strip.danger .hdot,
+.health-item.bad .hdot { will-change: opacity; }
+
+/* --- Connexion ----------------------------------------------------------- */
+/* Dégradé lentement mobile : le seul écran où un peu de présence visuelle est
+   bienvenue, puisqu'on n'y fait que patienter. */
+@keyframes gradientDrift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.login-page { background-size: 200% 200%; animation: gradientDrift 18s ease infinite; }
+.login-card { animation: modalIn .3s var(--ease-spring); }
+.login-logo { transition: transform var(--t-base) var(--ease-spring); }
+.login-card:hover .login-logo { transform: scale(1.05) rotate(-4deg); }

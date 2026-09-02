@@ -14,17 +14,46 @@
    écrit « 3 500 DA ». */
 export const CURRENCY = 'DZD';
 
-export const fmtMoney = (n, { decimals = 0 } = {}) =>
-  new Intl.NumberFormat('fr-DZ', {
-    style: 'currency', currency: CURRENCY,
-    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
-  }).format(Number(n || 0));
+/* Symbole affiché. « DA » est la forme employée sur les factures, les
+   affichages de prix et la signalétique en Algérie. Le sigle arabe « د.ج »
+   n'apparaît que dans les documents en langue arabe : il sera introduit avec
+   l'interface arabe, pas avant. */
+export const CURRENCY_SYMBOL = 'DA';
 
-/** Montant sans symbole, pour les colonnes de tableau déjà intitulées « DA ». */
-export const fmtAmount = (n, { decimals = 0 } = {}) =>
-  new Intl.NumberFormat('fr-DZ', {
-    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
-  }).format(Number(n || 0));
+/* Le formatage n'est pas délégué à Intl avec `style: 'currency'`.
+   Deux raisons : la position et l'espacement du symbole varient selon la
+   version d'ICU embarquée par le navigateur, et un Node compilé en
+   `small-icu` retomberait sur « DZD ». Le format doit être identique à
+   l'octet près entre l'écran, la facture imprimée et le journal d'audit
+   produit par le serveur (voir apps/api/src/core/money.mjs). */
+const groupDigits = (intPart) =>
+  // U+202F : espace fine insécable, séparateur de milliers français. Évite
+  // qu'un montant soit coupé en fin de ligne.
+  intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f');
+
+/**
+ * Montant en dinars.
+ * @param {number|string} n
+ * @param {{decimals?: number}} [opts] `decimals` force l'affichage des
+ *        centimes ; par défaut ils n'apparaissent que s'ils sont non nuls.
+ */
+export function fmtMoney(n, { decimals } = {}) {
+  return `${fmtAmount(n, { decimals })}\u00a0${CURRENCY_SYMBOL}`;
+}
+
+/** Montant sans symbole, pour les colonnes déjà intitulées « DA ». */
+export function fmtAmount(n, { decimals } = {}) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '0';
+
+  const abs = Math.abs(v);
+  // Le dinar admet légalement des centimes, mais aucun tarif de consultation
+  // ne les emploie. On ne les montre que s'ils existent réellement — cas d'un
+  // avoir calculé au prorata, par exemple.
+  const d = decimals ?? (Math.round(abs * 100) % 100 === 0 ? 0 : 2);
+  const [i, dec] = abs.toFixed(d).split('.');
+  return `${v < 0 ? '-' : ''}${groupDigits(i)}${dec ? ',' + dec : ''}`;
+}
 
 /** Montant en toutes lettres — obligatoire sur les quittances manuscrites. */
 export function amountToWords(n) {

@@ -45,13 +45,18 @@ export default function Dashboard({ user, go, onNewAppt }) {
       </div>
 
       <div className="grid c5" style={{ marginBottom: 16 }}>
-        <Stat label="Rendez-vous du jour" value={total} accent="blue" />
+        <Stat label="Rendez-vous du jour" value={total} accent="teal"
+              onClick={() => go('calendar')} title="Ouvrir l'agenda" />
         <Stat label="En salle d'attente" value={queue.waiting.length} accent="green"
-              hint={queue.waiting.length ? 'à appeler' : 'personne en attente'} />
-        <Stat label="En consultation" value={queue.inProgress.length} accent="orange" />
-        <Stat label="Terminés" value={queue.done.length} accent="green" />
+              hint={queue.waiting.length ? 'à appeler' : 'personne en attente'}
+              onClick={() => go('queue')} title="Ouvrir la file d'attente" />
+        <Stat label="En consultation" value={queue.inProgress.length} accent="orange"
+              onClick={() => go('queue')} title="Ouvrir la file d'attente" />
+        <Stat label="Terminés" value={queue.done.length} accent="green"
+              onClick={() => go('queue')} title="Ouvrir la file d'attente" />
         <Stat label="Absents" value={queue.absent.length} accent="red"
-              hint={queue.absent.length ? 'à recontacter' : '—'} />
+              hint={queue.absent.length ? 'à recontacter' : '—'}
+              onClick={() => go('queue')} title="Ouvrir la file d'attente" />
       </div>
 
       <div className="grid sidebar-right">
@@ -101,7 +106,7 @@ export default function Dashboard({ user, go, onNewAppt }) {
               <TaskRow icon="⏱" ok={waiting.items.length === 0}
                        text={`${waiting.items.length} patient(s) en liste d'attente`}
                        onClick={() => go('calendar')} />
-              <TaskRow icon="€" ok={unpaidToday.length === 0}
+              <TaskRow icon="▤" ok={unpaidToday.length === 0}
                        text={`${unpaidToday.length} encaissement(s) en attente`}
                        onClick={() => go('billing')} />
               <TaskRow icon="⚠" ok={outstanding.items.length === 0}
