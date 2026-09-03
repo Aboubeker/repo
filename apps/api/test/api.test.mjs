@@ -479,6 +479,15 @@ describe('Praticiens et absences', () => {
 describe('Facturation', () => {
   let invoiceId;
 
+  /* Ouvre une session de caisse si aucune ne l'est. Les encaissements en
+     espèces l'exigent désormais, faute de quoi ils échapperaient au
+     contrôle de caisse. */
+  const ensureOpenCashSession = async () => {
+    const open = await one(`SELECT id FROM cash_session WHERE status = 'OPEN' LIMIT 1`);
+    if (!open) await api('/api/cash-sessions/open', { method: 'POST',
+      body: { openingFloat: 0 } });
+  };
+
   test('facturation d\'un rendez-vous terminé', async () => {
     const a = await one(
       `SELECT a.id FROM appointment a
@@ -515,6 +524,9 @@ describe('Facturation', () => {
   });
 
   test('encaissement partiel puis solde', async () => {
+    // Encaisser des espèces suppose une caisse ouverte (règle métier
+    // introduite avec le contrôle NO_OPEN_CASH_SESSION).
+    await ensureOpenCashSession();
     const inv = await one('SELECT total_amount FROM invoice WHERE id = $1', [invoiceId]);
     const half = Math.round(inv.total_amount / 2 * 100) / 100;
 
@@ -531,6 +543,7 @@ describe('Facturation', () => {
   });
 
   test('un paiement supérieur au solde est refusé', async () => {
+    await ensureOpenCashSession();
     const r = await api(`/api/invoices/${invoiceId}/payments`, { method: 'POST',
       body: { method: 'CASH', amount: 500 } });
     assert.equal(r.status, 422);
@@ -563,6 +576,145 @@ describe('Facturation', () => {
     const closed = await close.json();
     assert.equal(closed.discrepancy, -5);
     assert.equal(closed.status, 'CLOSED');
+  });
+
+  /* ---- Correctifs d'audit ------------------------------------------- */
+
+  test('la ventilation assurance/patient suit chaque modification de ligne', async () => {
+    /*
+     * Défaut constaté : la part assurance n'était calculée qu'à la création.
+     * Une facture à 4300 DA gardait « assurance 2000 + patient 500 », donc
+     * 2500 — le patient assuré se voyait réclamer le montant plein.
+     */
+    const pat = await one(
+      `SELECT p.id, pi.coverage_rate FROM patient p
+         JOIN patient_insurance pi ON pi.patient_id = p.id AND pi.is_primary
+        WHERE p.deleted_at IS NULL LIMIT 1`);
+    const rate = Number(pat.coverage_rate);
+
+    const inv = await (await api('/api/invoices', { method: 'POST',
+      body: { patientId: pat.id } })).json();
+
+    // Facture « libre » : le calcul se faisait sur un total encore nul.
+    await api(`/api/invoices/${inv.id}/lines`, { method: 'POST',
+      body: { label: 'Consultation', unitPrice: 1500, quantity: 1 } });
+    let cur = (await (await api(`/api/invoices/${inv.id}`)).json()).invoice;
+    assert.equal(Number(cur.insurance_part), 1500 * rate / 100,
+      'part assurance erronée après la première ligne');
+
+    // Deuxième ligne : c'est ici que la ventilation restait figée.
+    await api(`/api/invoices/${inv.id}/lines`, { method: 'POST',
+      body: { label: 'ECG', unitPrice: 1800, quantity: 1 } });
+    cur = (await (await api(`/api/invoices/${inv.id}`)).json()).invoice;
+    const tot = Number(cur.total_amount);
+    assert.equal(tot, 3300);
+    assert.equal(
+      Math.round((Number(cur.insurance_part) + Number(cur.patient_part)) * 100) / 100,
+      tot, 'assurance + patient doit toujours égaler le total');
+  });
+
+  test('le droit de timbre ne frappe que les espèces', async () => {
+    // Art. 100 : 1 DA par tranche de 100 DA entamée, min 5, max 2500.
+    // Art. 258 bis : les versements bancaires en sont exonérés.
+    const cases = [[20, 'CASH', 0], [21, 'CASH', 5], [660, 'CASH', 7],
+                   [1500, 'CASH', 15], [300000, 'CASH', 2500], [1500, 'CARD', 0]];
+    for (const [amount, method, expected] of cases) {
+      const r = await one('SELECT fn_stamp_duty($1,$2)::numeric AS d', [amount, method]);
+      assert.equal(Number(r.d), expected, `timbre erroné pour ${amount} DA en ${method}`);
+    }
+  });
+
+  test('un encaissement en espèces exige une caisse ouverte', async () => {
+    /*
+     * Sans ce contrôle, le paiement était accepté avec cash_session_id à
+     * NULL : ces espèces n'apparaissaient dans aucun contrôle de caisse.
+     */
+    await query(`UPDATE cash_session SET status = 'CLOSED', closed_at = now()
+                  WHERE status = 'OPEN'`);
+    const pat = await one(`SELECT id FROM patient WHERE deleted_at IS NULL LIMIT 1`);
+    const inv = await (await api('/api/invoices', { method: 'POST',
+      body: { patientId: pat.id } })).json();
+    await api(`/api/invoices/${inv.id}/lines`, { method: 'POST',
+      body: { label: 'Consultation', unitPrice: 1500 } });
+    await api(`/api/invoices/${inv.id}/issue`, { method: 'POST' });
+
+    const r = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST',
+      body: { method: 'CASH', amount: 100 } });
+    assert.equal(r.status, 422);
+    assert.equal((await r.json()).error.code, 'NO_OPEN_CASH_SESSION');
+
+    // La carte laisse une trace bancaire : elle reste acceptée.
+    const ok = await api(`/api/invoices/${inv.id}/payments`, { method: 'POST',
+      body: { method: 'CARD', amount: 100 } });
+    assert.equal(ok.status, 201);
+    assert.equal(Number((await ok.json()).payment.stamp_duty), 0);
+  });
+
+  test('factures et avoirs ont chacun leur suite de numéros', async () => {
+    /*
+     * La séquence était partagée : un avoir consommait un numéro de
+     * facture et perçait un trou dans la suite — motif de rejet fiscal.
+     */
+    const pat = await one(`SELECT id FROM patient WHERE deleted_at IS NULL LIMIT 1`);
+    const mk = async () => {
+      const inv = await (await api('/api/invoices', { method: 'POST',
+        body: { patientId: pat.id } })).json();
+      await api(`/api/invoices/${inv.id}/lines`, { method: 'POST',
+        body: { label: 'Consultation', unitPrice: 1500 } });
+      return (await (await api(`/api/invoices/${inv.id}/issue`, { method: 'POST' })).json());
+    };
+    const first = await mk();
+    const credit = await (await api(`/api/invoices/${first.id}/credit`, { method: 'POST',
+      body: { reason: 'Test de numérotation' } })).json();
+    const second = await mk();
+
+    assert.match(first.number, /^F-\d{4}-\d{5}$/);
+    assert.match(credit.number, /^AV-\d{4}-\d{5}$/);
+    const n = (x) => Number(x.number.split('-')[2]);
+    assert.equal(n(second), n(first) + 1,
+      `suite de factures interrompue : ${first.number} puis ${second.number}`);
+  });
+
+  test('les factures sont datées de leur émission, pas de leur brouillon', async () => {
+    /*
+     * Le filtre portait sur created_at : une facture émise le 3 mais
+     * ouverte en brouillon le 2 était imputée à la journée du 2, faussant
+     * la recette du jour.
+     */
+    const pat = await one(`SELECT id FROM patient WHERE deleted_at IS NULL LIMIT 1`);
+    const inv = await (await api('/api/invoices', { method: 'POST',
+      body: { patientId: pat.id } })).json();
+    await api(`/api/invoices/${inv.id}/lines`, { method: 'POST',
+      body: { label: 'Consultation', unitPrice: 1500 } });
+    const issued = await (await api(`/api/invoices/${inv.id}/issue`,
+      { method: 'POST' })).json();
+
+    // Le brouillon a été ouvert la veille de l'émission.
+    await query(`UPDATE invoice SET created_at = created_at - interval '1 day'
+                  WHERE id = $1`, [inv.id]);
+    const day = String(issued.issued_at).slice(0, 10);
+    const prev = new Date(new Date(day).getTime() - 86400000).toISOString().slice(0, 10);
+
+    const onIssue = await (await api(`/api/invoices?from=${day}&to=${day}`)).json();
+    assert.ok(onIssue.items.some((i) => i.id === inv.id),
+      'la facture doit compter dans la journée de son émission');
+
+    const onDraft = await (await api(`/api/invoices?from=${prev}&to=${prev}`)).json();
+    assert.ok(!onDraft.items.some((i) => i.id === inv.id),
+      'elle ne doit pas compter dans la journée du brouillon');
+  });
+
+  test('supprimer une ligne de facture émise renvoie une erreur explicite', async () => {
+    // Le trigger de garde levait une exception convertie en HTTP 500 :
+    // message technique illisible pour la caissière.
+    const line = await one(
+      `SELECT l.id, l.invoice_id FROM invoice_line l
+         JOIN invoice i ON i.id = l.invoice_id
+        WHERE i.status <> 'DRAFT' LIMIT 1`);
+    const r = await api(`/api/invoices/${line.invoice_id}/lines/${line.id}`,
+      { method: 'DELETE' });
+    assert.equal(r.status, 422);
+    assert.equal((await r.json()).error.code, 'INVOICE_NOT_DRAFT');
   });
 });
 

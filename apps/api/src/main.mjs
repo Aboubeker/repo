@@ -60,7 +60,9 @@ export function buildRouter() {
     const rows = await query(
       `SELECT key, value FROM app_setting
         WHERE key IN ('clinic.name','clinic.city','clinic.wilaya','clinic.phone',
-                      'clinic.agrement','clinic.timezone')`);
+                      'clinic.agrement','clinic.timezone',
+                      'clinic.nif','clinic.rc','clinic.article_imposition',
+                      'clinic.address')`);
     const s = Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
     return {
       clinic_name: s['clinic.name'] || process.env.CLINIC_NAME || 'Clinique',
@@ -68,6 +70,13 @@ export function buildRouter() {
       wilaya:      s['clinic.wilaya'] || null,
       phone:       s['clinic.phone'] || null,
       agrement:    s['clinic.agrement'] || null,
+      /* Mentions obligatoires sur une facture algérienne. Elles existaient
+         en base mais n'étaient pas exposées : le document imprimé était
+         donc incomplet au regard de la réglementation. */
+      address:     s['clinic.address'] || null,
+      nif:         s['clinic.nif'] || null,
+      rc:          s['clinic.rc'] || null,
+      article_imposition: s['clinic.article_imposition'] || null,
       timezone:    s['clinic.timezone'] || process.env.CLINIC_TZ || 'Africa/Algiers',
 
       /*

@@ -184,3 +184,65 @@ describe('Imports', () => {
     }
   });
 });
+
+/* ====================================================================== */
+describe('Document imprimable', () => {
+  /*
+   * Origine : le bouton « Imprimer » d'une facture produisait une page
+   * vide. La facture est rendue dans une modale (« .overlay »), que la
+   * feuille d'impression masquait par display:none. Le défaut est
+   * invisible à l'écran et aucun navigateur n'est disponible ici : on
+   * vérifie donc statiquement qu'aucune règle @media print ne masque un
+   * ancêtre du document.
+   */
+  const printBlock = () => {
+    // Les commentaires sont retirés d'abord : une mention « @media print »
+    // dans un commentaire faisait analyser le mauvais texte, et le test
+    // passait alors même que la facture était masquée.
+    const css = read('styles.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const i = css.search(/@media\s+print\s*\{/);
+    assert.ok(i > -1, 'aucune règle @media print');
+    // Extraction du bloc par comptage d'accolades.
+    let depth = 0, start = css.indexOf('{', i), j = start;
+    do { if (css[j] === '{') depth++; else if (css[j] === '}') depth--; j++; }
+    while (depth > 0 && j < css.length);
+    return css.slice(start + 1, j - 1);
+  };
+
+  test('aucun ancêtre de la facture n\'est masqué à l\'impression', () => {
+    // Chaîne réelle du DOM jusqu'au document.
+    const chain = ['.app', '.main', '.content', '.overlay', '.modal',
+                   '.modal-body', '.print-doc'];
+    const hidden = [];
+    for (const rule of printBlock().split('}')) {
+      const [sel, decl] = rule.split('{');
+      if (!decl || !/display:\s*none/.test(decl)) continue;
+      for (const s of sel.split(',').map((x) => x.trim())) {
+        // Les sélecteurs qui excluent explicitement le document sont sûrs.
+        if (s.includes(':not(:has(.print-doc))') || s.includes(':not(.print-doc)')) continue;
+        if (chain.includes(s)) hidden.push(s);
+      }
+    }
+    assert.deepEqual(hidden, [],
+      `ces ancêtres masqués rendraient la facture invisible : ${hidden.join(', ')}`);
+  });
+
+  test('une seule règle @media print, pour éviter les contradictions', () => {
+    // Deux blocs séparés se contredisaient : l'un masquait .app, l'autre
+    // le remettait en display:block selon l'ordre de cascade.
+    // On ne compte que les vraies règles : « @media print { ». Les
+    // occurrences en commentaire ne créent aucune cascade.
+    const css = read('styles.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const n = (css.match(/@media\s+print\s*\{/g) || []).length;
+    assert.equal(n, 1, `${n} blocs @media print : regroupez-les`);
+  });
+
+  test('le document porte les mentions légales et le montant en lettres', () => {
+    const doc = read('InvoicePrint.jsx');
+    for (const needle of ['nif', 'rc', 'article_imposition', 'amountToWords',
+                          'stamp_duty', 'patient_part']) {
+      assert.ok(doc.includes(needle),
+        `« ${needle} » absent du document imprimable : facture incomplète`);
+    }
+  });
+});

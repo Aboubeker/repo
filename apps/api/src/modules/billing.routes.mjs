@@ -22,8 +22,16 @@ export function registerBillingRoutes(router) {
     const conds = [];
     if (ctx.query.status)    { params.push(ctx.query.status);    conds.push(`i.status = $${params.length}`); }
     if (ctx.query.patientId) { params.push(ctx.query.patientId); conds.push(`i.patient_id = $${params.length}`); }
-    if (ctx.query.from)      { params.push(ctx.query.from);      conds.push(`i.created_at >= $${params.length}::date`); }
-    if (ctx.query.to)        { params.push(ctx.query.to);        conds.push(`i.created_at < $${params.length}::date + 1`); }
+    /*
+     * La date qui fait foi est celle de l'ÉMISSION, pas celle du brouillon.
+     * Filtrer sur created_at rattachait une facture émise le 3 à la journée
+     * du 2 si le brouillon avait été ouvert la veille — la recette du jour
+     * était alors fausse. On retombe sur created_at uniquement pour les
+     * brouillons, qui n'ont pas encore de date d'émission.
+     */
+    const dateCol = `coalesce(i.issued_at, i.created_at)`;
+    if (ctx.query.from)      { params.push(ctx.query.from);      conds.push(`${dateCol} >= $${params.length}::date`); }
+    if (ctx.query.to)        { params.push(ctx.query.to);        conds.push(`${dateCol} < $${params.length}::date + 1`); }
     if (ctx.query.unpaid === 'true') conds.push(`i.status IN ('ISSUED','PARTIALLY_PAID','OVERDUE')`);
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
@@ -33,7 +41,7 @@ export function registerBillingRoutes(router) {
          FROM invoice i
          JOIN patient p ON p.id = i.patient_id
          LEFT JOIN practitioner pr ON pr.id = i.practitioner_id
-         ${where} ORDER BY i.created_at DESC LIMIT 200`, params);
+         ${where} ORDER BY coalesce(i.issued_at, i.created_at) DESC LIMIT 200`, params);
     const totals = await one(
       `SELECT coalesce(sum(i.total_amount),0) AS total,
               coalesce(sum(i.paid_amount),0)  AS paid,
@@ -96,12 +104,6 @@ export function registerBillingRoutes(router) {
         }
       }
 
-      // Part assurance calculée depuis la couverture principale du patient
-      const { rows: [ins] } = await c.query(
-        `SELECT coverage_rate FROM patient_insurance
-          WHERE patient_id = $1 AND is_primary
-            AND (valid_to IS NULL OR valid_to >= CURRENT_DATE) LIMIT 1`, [patientId]);
-
       const { rows: [inv] } = await c.query(
         `INSERT INTO invoice (patient_id, practitioner_id, notes, created_by)
          VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -115,13 +117,13 @@ export function registerBillingRoutes(router) {
           [inv.id, seedLine.appointmentId, seedLine.tariffId, seedLine.label,
            seedLine.unitPrice, seedLine.vatRate]);
       }
-      if (ins?.coverage_rate) {
-        const { rows: [t] } = await c.query('SELECT total_amount FROM invoice WHERE id = $1', [inv.id]);
-        const insurance = Math.round(t.total_amount * ins.coverage_rate) / 100;
-        await c.query(
-          `UPDATE invoice SET insurance_part = $2, patient_part = total_amount - $2 WHERE id = $1`,
-          [inv.id, insurance]);
-      }
+      /*
+       * La ventilation assurance / patient est tenue par la base
+       * (fn_recalc_invoice_shares, migration 005). La calculer ici ne
+       * marchait qu'une fois : toute ligne ajoutée ensuite laissait
+       * insurance_part + patient_part inférieur au total.
+       */
+      await c.query('SELECT fn_recalc_invoice_shares($1)', [inv.id]);
       await writeAudit(ctx, { action: 'CREATE', entity: 'invoice', entityId: inv.id,
         summary: 'Facture brouillon créée' });
       return (await c.query('SELECT * FROM invoice WHERE id = $1', [inv.id])).rows[0];
@@ -149,6 +151,20 @@ export function registerBillingRoutes(router) {
   }, { permission: 'invoice.write' });
 
   router.delete('/api/invoices/:iid/lines/:id', async (ctx) => {
+    /*
+     * On vérifie l'appartenance et le statut plutôt que de laisser le
+     * trigger de garde lever une exception : celle-ci remontait en HTTP 500,
+     * message technique illisible pour la caissière.
+     */
+    const line = await one(
+      `SELECT l.id, i.status FROM invoice_line l
+         JOIN invoice i ON i.id = l.invoice_id
+        WHERE l.id = $1 AND l.invoice_id = $2`, [ctx.params.id, ctx.params.iid]);
+    if (!line) throw notFound('Ligne de facture introuvable.');
+    if (line.status !== 'DRAFT')
+      throw unprocessable(
+        'Cette facture est émise : ses lignes ne sont plus modifiables. Émettez un avoir pour la corriger.',
+        'INVOICE_NOT_DRAFT');
     await one('DELETE FROM invoice_line WHERE id = $1 RETURNING id', [ctx.params.id]);
     return { ok: true };
   }, { permission: 'invoice.write' });
@@ -167,8 +183,7 @@ export function registerBillingRoutes(router) {
       const { rows: [r] } = await c.query(
         `UPDATE invoice SET status = 'ISSUED', issued_at = now(),
                 due_date = (now() + interval '30 days')::date,
-                number = 'F-' || to_char(now(),'YYYY') || '-' ||
-                         lpad(nextval('invoice_number_seq')::text, 5, '0')
+                number = fn_next_document_number('F', 'invoice_number_seq')
            WHERE id = $1 RETURNING *`, [cur.id]);
       return r;
     });
@@ -200,8 +215,7 @@ export function registerBillingRoutes(router) {
       }
       await c.query(
         `UPDATE invoice SET status = 'ISSUED', issued_at = now(),
-                number = 'AV-' || to_char(now(),'YYYY') || '-' ||
-                         lpad(nextval('invoice_number_seq')::text, 5, '0')
+                number = fn_next_document_number('AV', 'credit_note_number_seq')
            WHERE id = $1`, [cr.id]);
       await c.query(`UPDATE invoice SET status = 'CREDITED' WHERE id = $1`, [orig.id]);
       return (await c.query('SELECT * FROM invoice WHERE id = $1', [cr.id])).rows[0];
@@ -232,10 +246,32 @@ export function registerBillingRoutes(router) {
 
       const { rows: [session] } = await c.query(
         `SELECT id FROM cash_session WHERE status = 'OPEN' ORDER BY opened_at DESC LIMIT 1`);
+      /*
+       * Espèces hors session ouverte : refusé. Enregistrer le paiement avec
+       * cash_session_id à NULL le faisait échapper à tout contrôle de caisse
+       * — l'écart de clôture devenait structurellement faux. Les autres modes
+       * (carte, virement…) laissent une trace bancaire et restent acceptés.
+       */
+      if (d.method === 'CASH' && !session)
+        throw unprocessable(
+          'Aucune session de caisse ouverte : impossible d\'encaisser des espèces. Ouvrez la caisse depuis Facturation → Caisse.',
+          'NO_OPEN_CASH_SESSION');
       const { rows: [p] } = await c.query(
         `INSERT INTO payment (invoice_id, cash_session_id, method, amount, reference, notes, received_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
         [inv.id, session?.id ?? null, d.method, d.amount, d.reference, d.notes, ctx.user.sub]);
+
+      /*
+       * Droit de timbre (art. 100) : calculé par la base sur le paiement,
+       * puis cumulé sur la facture pour figurer sur le document imprimé.
+       * Le cumul est recalculé — jamais incrémenté — pour rester juste si
+       * un paiement est annulé.
+       */
+      await c.query(
+        `UPDATE invoice SET stamp_duty = coalesce((
+            SELECT sum(stamp_duty) FROM payment
+             WHERE invoice_id = $1 AND NOT is_refund), 0)
+          WHERE id = $1`, [inv.id]);
       return p;
     });
     await writeAudit(ctx, { action: 'PAYMENT', entity: 'invoice', entityId: ctx.params.id,

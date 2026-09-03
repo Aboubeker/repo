@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import {
   Spinner, Empty, Modal, Field, ErrorAlert, Badge, INVOICE_STATUS, PAYMENT_METHODS,
-  Stat, fmtDate, fmtMoney, fmtName, can, useToast,
+  Stat, fmtDate, fmtMoney, fmtName, can, useToast, stampDuty,
 } from '../lib.jsx';
+import InvoicePrint from '../InvoicePrint.jsx';
 
 export default function Billing({ user, go }) {
   // Repli sur les rappels de navigation : cette page peut être montée
@@ -113,6 +114,13 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
   const [paying, setPaying] = useState(false);
   const toast = useToast();
 
+  const [branding, setBranding] = useState(null);
+  // L'en-tête du document imprimé vient du paramétrage de la clinique :
+  // le coder en dur produirait une facture au nom d'une autre structure.
+  useEffect(function loadBranding() {
+    api.branding().then(setBranding).catch(() => setBranding({}));
+  }, []);
+
   const load = () => { api.invoice(id).then(setD).catch(setError); };
   // Accolades indispensables : en flèche concise, `load` retournerait la
   // promesse, que React prendrait pour la fonction de nettoyage et
@@ -187,8 +195,18 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
           <tr><td colSpan={3} className="num muted">Sous-total</td>
             <td className="num">{fmtMoney(inv.subtotal)}</td></tr>
           {Number(inv.insurance_part) > 0 && (
-            <tr><td colSpan={3} className="num muted">Part assurance</td>
-              <td className="num">{fmtMoney(inv.insurance_part)}</td></tr>
+            <>
+              <tr><td colSpan={3} className="num muted">Part organisme (tiers payant)</td>
+                <td className="num">− {fmtMoney(inv.insurance_part)}</td></tr>
+              {/* Le reste à charge est le seul chiffre qui intéresse le
+                  patient au guichet : il doit être lisible sans calcul. */}
+              <tr><td colSpan={3} className="num"><strong>Reste à charge patient</strong></td>
+                <td className="num"><strong>{fmtMoney(inv.patient_part)}</strong></td></tr>
+            </>
+          )}
+          {Number(inv.stamp_duty) > 0 && (
+            <tr><td colSpan={3} className="num muted">Droit de timbre (art. 100)</td>
+              <td className="num">{fmtMoney(inv.stamp_duty)}</td></tr>
           )}
           <tr><td colSpan={3} className="num"><strong>Total</strong></td>
             <td className="num"><strong>{fmtMoney(inv.total_amount)}</strong></td></tr>
@@ -223,6 +241,10 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
 
       {paying && <PayModal invoice={inv} onClose={() => setPaying(false)}
         onDone={() => { setPaying(false); load(); onChanged(); }} />}
+
+      {/* Masqué à l'écran, seul visible à l'impression. */}
+      <InvoicePrint invoice={inv} lines={d.lines} payments={d.payments}
+                    branding={branding} />
     </Modal>
   );
 }
@@ -236,8 +258,16 @@ function PayModal({ invoice, onClose, onDone }) {
   const toast = useToast();
 
   const given = Number(amount);
-  const change = method === 'CASH' && given > Number(invoice.balance)
-    ? given - Number(invoice.balance) : 0;
+  /*
+   * Droit de timbre (art. 100) : dû sur les règlements en espèces. Il
+   * s'ajoute à la somme réclamée au patient, donc la caissière doit le
+   * voir AVANT d'annoncer le montant. La base le recalcule à l'insertion
+   * du paiement : l'affichage ici n'est qu'une prévisualisation.
+   */
+  const due = Number(invoice.balance);
+  const stamp = stampDuty(Math.min(given || due, due), method);
+  const toCollect = due + stamp;
+  const change = method === 'CASH' && given > toCollect ? given - toCollect : 0;
 
   const submit = async () => {
     setBusy(true); setError(null);
@@ -254,7 +284,7 @@ function PayModal({ invoice, onClose, onDone }) {
       <>
         <button className="btn" onClick={onClose}>Annuler</button>
         <button className="btn success" disabled={busy || !given} onClick={submit}>
-          Encaisser et imprimer le reçu</button>
+          Encaisser</button>
       </>
     }>
       <ErrorAlert error={error} />
@@ -262,6 +292,13 @@ function PayModal({ invoice, onClose, onDone }) {
         <div className="label">Reste à payer</div>
         <div className="value">{fmtMoney(invoice.balance)}</div>
       </div>
+      {stamp > 0 && (
+        <div className="alert info" style={{ marginBottom: 12 }}>
+          <span>🧾</span>
+          <div>Droit de timbre sur espèces : <strong>{fmtMoney(stamp)}</strong>
+            {' — '}total à encaisser <strong>{fmtMoney(toCollect)}</strong></div>
+        </div>
+      )}
       <Field label="Mode de paiement">
         <select value={method} onChange={(e) => setMethod(e.target.value)}>
           {Object.entries(PAYMENT_METHODS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

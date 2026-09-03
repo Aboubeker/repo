@@ -509,12 +509,9 @@ tbody tr.clickable { cursor: pointer; }
 .toast.success { background: var(--success); }
 @keyframes slidein { from { transform: translateX(20px); opacity: 0; } }
 
-@media print {
-  .sidebar, .topbar, .btn, .tabs { display: none !important; }
-  .app { grid-template-columns: 1fr; }
-  .content { padding: 0; }
-  .card { box-shadow: none; border: 1px solid #999; }
-}
+/* Règles d'impression : regroupées plus bas, avec le document facture.
+   Deux blocs @media print séparés se contredisaient (celui-ci masquait
+   .btn et laissait .app en grille, l'autre remettait .app en bloc). */
 
 /* Pieds de tableau (totaux de facture) */
 tfoot td { border-top: 1px solid var(--border); font-size: 12.5px; }
@@ -623,14 +620,82 @@ kbd { font-family: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 
   .skeleton { background: var(--surface-3); }
 }
 
-/* --- Impression : factures et ordonnances ------------------------------- */
+/* --- Impression : factures et ordonnances -------------------------------
+ *
+ * La facture s'affiche dans une modale, donc dans « .overlay » — que cette
+ * feuille masquait. Le bouton Imprimer produisait une page vide. On masque
+ * désormais l'application entière et on ne laisse que le document dédié
+ * (.print-doc), qui porte l'en-tête clinique et les mentions légales.
+ */
+.print-doc { display: none; }
+
 @media print {
-  .drawer, .drawer-overlay, .overlay, .toast-wrap, .action-strip,
-  .page-head .ph-actions { display: none !important; }
-  body { background: #fff; font-size: 11.5pt; }
+  /* .app n'est PAS masqué : la modale est rendue à l'intérieur, la masquer
+     emporterait le document avec elle. On neutralise sa grille et on cache
+     ses parties écran une à une. */
+  .sidebar, .topbar, .tabs, .btn, .drawer, .drawer-overlay, .toast-wrap,
+  .action-strip, .page-head .ph-actions { display: none !important; }
+  .card { box-shadow: none; border: 1px solid #999; }
+  .app { display: block !important; }
+  /*
+   * La modale est rendue DANS .content : masquer .content emporterait le
+   * document. On ne masque donc que les blocs de la page qui ne
+   * contiennent pas le document — la liste des factures, les statistiques —
+   * en gardant la chaîne d'ancêtres du .print-doc visible.
+   */
+  .content:has(.print-doc) > *:not(:has(.print-doc)) { display: none !important; }
+  .content { padding: 0 !important; }
+
+  /* L'overlay ne sert plus que de conteneur : on le neutralise sans le
+     masquer, sinon le document qu'il contient disparaîtrait avec lui. */
+  .overlay { position: static !important; display: block !important;
+    background: none !important; padding: 0 !important; overflow: visible !important; }
+  .modal, .modal-body { max-width: none !important; max-height: none !important;
+    box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
+  .modal-head, .modal-foot { display: none !important; }
+  /* Le contenu écran de la modale cède la place au document imprimable. */
+  .modal-body > *:not(.print-doc) { display: none !important; }
+
+  body { background: #fff; font-size: 11pt; color: #000; }
+  @page { size: A4; margin: 14mm; }
+
+  .print-doc { display: block !important; }
   .print-header { display: block !important; }
 }
 .print-header { display: none; }
+
+/* --- Mise en page du document imprimable -------------------------------- */
+.print-doc .pd-head { display: flex; justify-content: space-between;
+  align-items: flex-start; gap: 20px; border-bottom: 2px solid #000;
+  padding-bottom: 10px; margin-bottom: 14px; }
+.print-doc .pd-clinic { font-size: 15pt; font-weight: 700; }
+.print-doc .pd-sub { font-size: 9pt; line-height: 1.45; }
+.print-doc .pd-legal { font-size: 8pt; margin-top: 5px; }
+.print-doc .pd-doc { text-align: right; white-space: nowrap; }
+.print-doc .pd-title { font-size: 16pt; font-weight: 700; letter-spacing: .06em; }
+.print-doc .pd-num { font-size: 11pt; font-weight: 600; }
+.print-doc .pd-parties { display: flex; justify-content: space-between;
+  gap: 24px; margin-bottom: 14px; }
+.print-doc .pd-label { font-size: 8pt; text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 2px; }
+.print-doc .pd-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.print-doc .pd-table th, .print-doc .pd-table td {
+  border: 1px solid #000; padding: 5px 7px; font-size: 10pt; }
+.print-doc .pd-table th { text-align: left; }
+.print-doc .num { text-align: right; }
+.print-doc .pd-totals { display: flex; justify-content: flex-end; }
+.print-doc .pd-totals table { border-collapse: collapse; min-width: 62mm; }
+.print-doc .pd-totals td { padding: 3px 7px; font-size: 10pt; }
+.print-doc .pd-strong td { font-weight: 700; }
+.print-doc .pd-total td { font-weight: 700; font-size: 11.5pt;
+  border-top: 2px solid #000; }
+.print-doc .pd-words { margin-top: 12px; font-size: 9.5pt; font-style: italic; }
+.print-doc .pd-pay { margin-top: 12px; font-size: 9.5pt; }
+.print-doc .pd-foot { margin-top: 26px; display: flex;
+  justify-content: space-between; align-items: flex-end; gap: 20px; }
+.print-doc .pd-sign { font-size: 9pt; border-top: 1px solid #000;
+  padding-top: 4px; min-width: 55mm; text-align: center; }
+.print-doc .pd-notes { font-size: 8.5pt; max-width: 100mm; }
 
 /* --- Compteur dans la navigation --------------------------------------- */
 .nav-count { margin-left: auto; background: var(--danger); color: #fff;
