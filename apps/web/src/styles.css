@@ -260,8 +260,33 @@ button.btn.sm { padding: 5px 10px; font-size: var(--fs-sm); min-height: 30px; }
    plutôt que de se replier et de faire varier la hauteur des lignes. */
 .nowrap { white-space: nowrap; }
 td.nowrap > .btn + .btn { margin-left: 4px; }
-button.btn.ghost { border-color: transparent; background: none; }
+button.btn.ghost { border-color: transparent; background: none; color: var(--text); }
 button.btn.ghost:hover { background: var(--surface-2); }
+
+/* --- Variantes discrètes colorées ---------------------------------------
+ *
+ * « ghost » et « danger » se combinent (bouton Supprimer / Retirer d'une
+ * ligne de tableau). À spécificité égale, « ghost » l'emportait car déclaré
+ * plus bas : il remettait le fond à « none » sans réinitialiser la couleur
+ * du texte laissée à #fff par « danger ». Résultat : texte blanc sur fond
+ * blanc, bouton invisible mais bel et bien cliquable — quatre actions
+ * destructrices étaient dans ce cas.
+ *
+ * La teinte est portée par le TEXTE, pas par le fond : c'est le principe
+ * d'un bouton discret. Le fond n'apparaît qu'au survol.
+ */
+button.btn.ghost.danger  { background: none; color: var(--danger); }
+button.btn.ghost.primary { background: none; color: var(--primary-dark); }
+button.btn.ghost.success { background: none; color: var(--success); }
+
+button.btn.ghost.danger:hover:not(:disabled)  { background: var(--danger-light); }
+button.btn.ghost.primary:hover:not(:disabled) { background: var(--primary-light); }
+button.btn.ghost.success:hover:not(:disabled) { background: var(--success-light); }
+
+/* Le survol générique de .ghost ne doit pas écraser la teinte ci-dessus :
+   sans cela, le fond gris reprendrait le dessus au passage de la souris. */
+button.btn.ghost.danger:hover, button.btn.ghost.primary:hover,
+button.btn.ghost.success:hover { box-shadow: none; }
 
 input, select, textarea {
   padding: 9px 11px; border: 1px solid var(--border-strong);

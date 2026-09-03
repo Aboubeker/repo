@@ -268,3 +268,68 @@ describe('Document imprimable', () => {
     }
   });
 });
+
+/* ====================================================================== */
+describe('Lisibilité des boutons', () => {
+  /*
+   * Origine : le bouton « Retirer » d'une ligne de tableau était invisible.
+   * Il portait « btn ghost sm danger » ; à spécificité égale, « .ghost »
+   * (déclaré plus bas) remettait le fond à « none » sans réinitialiser la
+   * couleur du texte laissée à #fff par « .danger ». Texte blanc sur fond
+   * blanc : le bouton occupait sa place et restait cliquable, donc rien ne
+   * signalait le défaut. Quatre actions destructrices étaient concernées.
+   *
+   * Le contrôle est statique : on relit la cascade pour chaque combinaison
+   * de classes réellement employée dans les pages.
+   */
+  const css = () => read('styles.css');
+
+  /** Couleurs finales d'un bouton, en rejouant l'ordre de déclaration. */
+  const resolve = (classes) => {
+    const rules = [...css().matchAll(/button\.btn([.\w-]*)\s*\{([^}]*)\}/g)];
+    const out = { color: null, background: null };
+    for (const [, sel, body] of rules) {
+      const needed = sel.split('.').filter(Boolean);
+      if (!needed.every((c) => classes.includes(c))) continue;
+      const color = body.match(/(?:^|;)\s*color:\s*([^;]+)/);
+      const bg = body.match(/(?:^|;)\s*background:\s*([^;]+)/);
+      if (color) out.color = color[1].trim();
+      if (bg) out.background = bg[1].trim();
+    }
+    return out;
+  };
+
+  /** Classes de bouton réellement utilisées dans l'interface. */
+  const usedCombos = () => {
+    const seen = new Set();
+    for (const f of [...pages().map((p) => `pages/${p}`), 'lib.jsx', 'App.jsx']) {
+      for (const [, cls] of read(f).matchAll(/className="(btn[^"]*)"/g)) {
+        seen.add(cls.split(/\s+/).sort().join(' '));
+      }
+    }
+    return [...seen].map((c) => c.split(' '));
+  };
+
+  test('aucun bouton n\'affiche du texte blanc sur fond transparent', () => {
+    const broken = [];
+    for (const combo of usedCombos()) {
+      const { color, background } = resolve(combo);
+      const invisible = /#fff|white/i.test(color || '')
+        && /none|transparent/i.test(background || '');
+      if (invisible) broken.push(combo.join(' '));
+    }
+    assert.deepEqual(broken, [],
+      `boutons invisibles (texte blanc sans fond) : ${broken.join(' | ')}`);
+  });
+
+  test('chaque variante discrète colorée définit sa couleur de texte', () => {
+    // Combiner .ghost avec une couleur n'a de sens que si la teinte passe
+    // sur le texte : sinon le bouton perd son fond et garde #fff.
+    for (const variant of ['danger', 'primary', 'success']) {
+      const rule = new RegExp(
+        `button\\.btn\\.ghost\\.${variant}\\s*\\{[^}]*color:`);
+      assert.ok(rule.test(css()),
+        `.ghost.${variant} ne redéfinit pas color : texte blanc sur fond blanc`);
+    }
+  });
+});
