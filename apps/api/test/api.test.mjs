@@ -932,6 +932,24 @@ describe('Gouvernance', () => {
       method: 'PATCH', body: { amount: 1 } })).status, 403);
   });
 
+  test('le jeu de données initial accorde la vue globale aux bons rôles', async () => {
+    /*
+     * Régression constatée sur une installation neuve : les migrations
+     * s'exécutent AVANT le seed, donc le « INSERT ... SELECT FROM role » de
+     * la migration 004 ne trouvait aucun rôle à qui accorder la permission,
+     * et le seed recréait ensuite les rôles sans elle. L'accueil perdait
+     * l'agenda global, sans que rien ne le signale.
+     */
+    const { rows } = await query(`SELECT r.code FROM role r
+       JOIN role_permission rp ON rp.role_id = r.id
+      WHERE rp.permission_code = 'appointment.read.all' ORDER BY 1`);
+    const roles = rows.map((r) => r.code);
+    assert.deepEqual(roles, ['ADMIN', 'BILLING', 'RECEPTION'],
+      `vue globale mal distribuée : ${roles.join(', ') || 'aucun rôle'}`);
+    assert.ok(!roles.includes('PRACTITIONER'),
+      'le praticien ne doit jamais recevoir la vue globale');
+  });
+
   test('un praticien ne voit que son propre agenda', async () => {
     /*
      * Le filtre par praticien n'existait que dans l'interface : appeler

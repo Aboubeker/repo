@@ -44,6 +44,7 @@ try {
     ['practitioner.read', 'Consulter les praticiens', 'Praticiens'],
     ['practitioner.write', 'Gérer les praticiens et disponibilités', 'Praticiens'],
     ['appointment.read', 'Consulter l\'agenda', 'Rendez-vous'],
+    ['appointment.read.all', 'Consulter l\'agenda de tous les praticiens', 'Rendez-vous'],
     ['appointment.write', 'Créer / modifier des rendez-vous', 'Rendez-vous'],
     ['appointment.override', 'Forcer un créneau indisponible', 'Rendez-vous'],
     ['encounter.read', 'Lire les comptes rendus', 'Consultations'],
@@ -68,14 +69,15 @@ try {
   const ROLES = {
     ADMIN: { label: 'Administrateur', perms: PERMISSIONS.map((p) => p[0]) },
     RECEPTION: { label: 'Réceptionniste', perms: [
-      'patient.read','patient.write','practitioner.read','appointment.read','appointment.write',
+      'patient.read','patient.write','practitioner.read','appointment.read','appointment.read.all',
+      'appointment.write',
       'resource.read','billing.read','invoice.write','payment.write'] },
     PRACTITIONER: { label: 'Praticien', perms: [
       'patient.read','patient.write','patient.write.medical','practitioner.read','practitioner.write',
       'appointment.read','appointment.write','appointment.override',
       'encounter.read','encounter.write','resource.read','report.read'] },
     BILLING: { label: 'Facturation', perms: [
-      'patient.read','appointment.read','billing.read','invoice.write','invoice.void',
+      'patient.read','appointment.read','appointment.read.all','billing.read','invoice.write','invoice.void',
       'payment.write','report.read'] },
     READONLY: { label: 'Consultation seule', perms: ['report.read'] },
   };
