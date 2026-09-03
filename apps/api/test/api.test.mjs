@@ -575,6 +575,132 @@ describe('Facturation', () => {
     assert.equal((await r.json()).error.code, 'APPOINTMENT_NOT_COMPLETED');
   });
 
+  /* --- Modification des lignes (PATCH) ---------------------------------
+   * Une facture brouillon dediee : ces tests modifient des lignes, ils ne
+   * doivent pas perturber la sequence emission -> encaissement -> avoir qui
+   * s'appuie sur `invoiceId`.
+   */
+  describe('Modification des lignes de facture', () => {
+    let draftId, lineId;
+
+    before(async () => {
+      const a = await one(
+        `SELECT a.id FROM appointment a
+          WHERE a.status = 'COMPLETED'
+            AND NOT EXISTS (SELECT 1 FROM invoice_line l WHERE l.appointment_id = a.id)
+          LIMIT 1`);
+      const inv = await (await api('/api/invoices', { method: 'POST',
+        body: { appointmentId: a.id } })).json();
+      draftId = inv.id;
+      const line = await (await api(`/api/invoices/${draftId}/lines`, { method: 'POST',
+        body: { label: 'Soin visage', quantity: 1, unitPrice: 2000 } })).json();
+      lineId = line.id;
+    });
+
+    after(async () => {
+      await query("UPDATE invoice SET status = 'DRAFT' WHERE id = $1", [draftId]);
+      await query('DELETE FROM invoice_line WHERE invoice_id = $1', [draftId]);
+      await query('DELETE FROM invoice WHERE id = $1', [draftId]);
+    });
+
+    test('la modification recalcule la ligne et le total de la facture', async () => {
+      /* Le montant de la consultation pre-remplie depend du type de rendez-vous
+       * tire : on compare a la somme des lignes, pas a un montant en dur. */
+      const r = await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        method: 'PATCH', body: { quantity: 3 } });
+      assert.equal(r.status, 200);
+      assert.equal(Number((await r.json()).line_total), 6000);
+      const inv = await one('SELECT total_amount FROM invoice WHERE id = $1', [draftId]);
+      const sum = await one(
+        'SELECT coalesce(sum(line_total),0) AS s FROM invoice_line WHERE invoice_id = $1',
+        [draftId]);
+      assert.equal(Number(inv.total_amount), Number(sum.s),
+        'le total de la facture suit la somme des lignes');
+      assert.ok(Number(inv.total_amount) >= 6000, 'la ligne modifiee y est incluse');
+    });
+
+    test('la remise est appliquee au total de ligne', async () => {
+      const r = await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        method: 'PATCH', body: { quantity: 2, unitPrice: 1000, discountRate: 10 } });
+      assert.equal(Number((await r.json()).line_total), 1800);
+    });
+
+    /* Le piege : `validate` ramene tout champ absent a null. Sans lecture des
+     * cles reellement transmises, envoyer la seule quantite effacerait le
+     * libelle. */
+    test('une modification partielle preserve les champs non transmis', async () => {
+      const before = await one('SELECT label FROM invoice_line WHERE id = $1', [lineId]);
+      const r = await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        method: 'PATCH', body: { quantity: 4 } });
+      const after = await r.json();
+      assert.equal(after.label, before.label, 'le libelle ne doit pas etre efface');
+      assert.equal(Number(after.quantity), 4);
+    });
+
+    test('la ventilation reste coherente apres modification', async () => {
+      await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        method: 'PATCH', body: { quantity: 2, unitPrice: 1500, discountRate: 0 } });
+      const inv = await one(
+        `SELECT total_amount, insurance_part, patient_part FROM invoice WHERE id = $1`,
+        [draftId]);
+      assert.equal(Number(inv.insurance_part) + Number(inv.patient_part),
+        Number(inv.total_amount), 'insurance_part + patient_part = total');
+    });
+
+    test('un corps vide est refuse', async () => {
+      const r = await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        method: 'PATCH', body: {} });
+      assert.equal(r.status, 400);
+    });
+
+    test('une quantite nulle est refusee', async () => {
+      const r = await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        method: 'PATCH', body: { quantity: 0 } });
+      assert.equal(r.status, 400);
+    });
+
+    test('une ligne inconnue renvoie 404', async () => {
+      const r = await api(
+        `/api/invoices/${draftId}/lines/00000000-0000-0000-0000-000000000000`,
+        { method: 'PATCH', body: { quantity: 2 } });
+      assert.equal(r.status, 404);
+    });
+
+    /* Regression M4 : le trigger de garde levait une exception remontant en
+     * HTTP 500, message technique illisible au guichet. */
+    test('modifier la ligne d\'une facture emise renvoie 422, pas 500', async () => {
+      const a = await one(
+        `SELECT a.id FROM appointment a
+          WHERE a.status = 'COMPLETED'
+            AND NOT EXISTS (SELECT 1 FROM invoice_line l WHERE l.appointment_id = a.id)
+          LIMIT 1`);
+      const inv = await (await api('/api/invoices', { method: 'POST',
+        body: { appointmentId: a.id } })).json();
+      const line = await one('SELECT id FROM invoice_line WHERE invoice_id = $1', [inv.id]);
+      await api(`/api/invoices/${inv.id}/issue`, { method: 'POST' });
+
+      const r = await api(`/api/invoices/${inv.id}/lines/${line.id}`, {
+        method: 'PATCH', body: { quantity: 9 } });
+      assert.equal(r.status, 422, 'ni 500, ni succes');
+      assert.equal((await r.json()).error.code, 'INVOICE_NOT_DRAFT');
+
+      const untouched = await one('SELECT quantity FROM invoice_line WHERE id = $1', [line.id]);
+      assert.equal(Number(untouched.quantity), 1, 'la ligne doit rester intacte');
+
+      await query("UPDATE invoice SET status = 'DRAFT' WHERE id = $1", [inv.id]);
+      await query('DELETE FROM invoice_line WHERE invoice_id = $1', [inv.id]);
+      await query('DELETE FROM invoice WHERE id = $1', [inv.id]);
+    });
+
+    /* La reception detient invoice.write : c'est elle qui encaisse au guichet.
+     * Le praticien, lui, n'a aucun droit de facturation. */
+    test('un praticien ne peut pas modifier une ligne de facture', async () => {
+      const r = await api(`/api/invoices/${draftId}/lines/${lineId}`, {
+        as: 'a.benali', method: 'PATCH', body: { quantity: 2 } });
+      assert.equal(r.status, 403);
+    });
+  });
+
   test('l\'émission attribue un numéro légal', async () => {
     const r = await api(`/api/invoices/${invoiceId}/issue`, { method: 'POST' });
     const inv = await r.json();

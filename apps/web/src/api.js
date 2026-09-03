@@ -147,6 +147,11 @@ export const api = {
   invoice: (id) => request(`/api/invoices/${id}`),
   createInvoice: (b) => request('/api/invoices', { method: 'POST', body: b }),
   addInvoiceLine: (id, b) => request(`/api/invoices/${id}/lines`, { method: 'POST', body: b }),
+  // Mise a jour partielle : n'envoyer que les champs reellement modifies.
+  updateInvoiceLine: (id, lineId, b) =>
+    request(`/api/invoices/${id}/lines/${lineId}`, { method: 'PATCH', body: b }),
+  deleteInvoiceLine: (id, lineId) =>
+    request(`/api/invoices/${id}/lines/${lineId}`, { method: 'DELETE' }),
   issueInvoice: (id) => request(`/api/invoices/${id}/issue`, { method: 'POST', body: {} }),
   creditInvoice: (id, reason) =>
     request(`/api/invoices/${id}/credit`, { method: 'POST', body: { reason } }),

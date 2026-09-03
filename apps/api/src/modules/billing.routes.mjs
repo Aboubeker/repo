@@ -150,6 +150,82 @@ export function registerBillingRoutes(router) {
     return l;
   }, { permission: 'invoice.write' });
 
+  /*
+   * Modification d'une ligne (quantite, prix, libelle, remise).
+   *
+   * Mise a jour PARTIELLE : on ne touche qu'aux champs reellement transmis.
+   * `validate` ramene tout champ absent a null, ce qui ecraserait le libelle
+   * existant des qu'on ne renvoie que la quantite. On lit donc les cles
+   * presentes dans le corps avant de valider.
+   */
+  router.patch('/api/invoices/:iid/lines/:id', async (ctx) => {
+    const body = ctx.body || {};
+    const sent = (k) => Object.prototype.hasOwnProperty.call(body, k)
+      && body[k] !== undefined && body[k] !== '';
+
+    const d = validate(body, {
+      label:        { type: 'string', max: 200, min: 1 },
+      quantity:     { type: 'number', min: 0.01 },
+      unitPrice:    { type: 'number', min: 0 },
+      vatRate:      { type: 'number', min: 0, max: 100 },
+      discountRate: { type: 'number', min: 0, max: 100 },
+    });
+
+    const fields = ['label', 'quantity', 'unitPrice', 'vatRate', 'discountRate']
+      .filter(sent);
+    if (!fields.length) throw badRequest('Aucune modification transmise.');
+
+    return tx(async (c) => {
+      /*
+       * Verrou sur la facture : sans lui, deux postes modifiant deux lignes
+       * de la meme facture recalculent le total en parallele a partir d'un
+       * etat perime. Meme raison que le FOR UPDATE de l'encaissement.
+       */
+      const { rows: [line] } = await c.query(
+        `SELECT l.*, i.status FROM invoice_line l
+           JOIN invoice i ON i.id = l.invoice_id
+          WHERE l.id = $1 AND l.invoice_id = $2
+          FOR UPDATE OF l`, [ctx.params.id, ctx.params.iid]);
+
+      /*
+       * Controle explicite plutot que de laisser le trigger de garde lever
+       * une exception : celle-ci remonterait en 500, message illisible pour
+       * la caissiere. Meme traitement que le DELETE ci-dessous.
+       */
+      if (!line) throw notFound('Ligne de facture introuvable.');
+      if (line.status !== 'DRAFT')
+        throw unprocessable(
+          'Cette facture est émise : ses lignes ne sont plus modifiables. Émettez un avoir pour la corriger.',
+          'INVOICE_NOT_DRAFT');
+
+      const next = {
+        label:        sent('label')        ? d.label        : line.label,
+        quantity:     sent('quantity')     ? d.quantity     : Number(line.quantity),
+        unitPrice:    sent('unitPrice')    ? d.unitPrice    : Number(line.unit_price),
+        vatRate:      sent('vatRate')      ? d.vatRate      : Number(line.vat_rate),
+        discountRate: sent('discountRate') ? d.discountRate : Number(line.discount_rate),
+      };
+
+      // Meme formule que la creation : le total de ligne reste calcule ici,
+      // les totaux de la facture sont recalcules par trg_recalc_invoice_totals.
+      const total = Math.round(
+        next.quantity * next.unitPrice * (1 - next.discountRate / 100) * 100) / 100;
+
+      const { rows: [updated] } = await c.query(
+        `UPDATE invoice_line
+            SET label = $1, quantity = $2, unit_price = $3, vat_rate = $4,
+                discount_rate = $5, line_total = $6
+          WHERE id = $7 RETURNING *`,
+        [next.label, next.quantity, next.unitPrice, next.vatRate,
+         next.discountRate, total, ctx.params.id]);
+
+      await writeAudit(ctx, { action: 'UPDATE', entity: 'invoice_line',
+        entityId: updated.id,
+        summary: `Ligne modifiée : ${updated.label} — ${fmtMoney(total)}` });
+      return updated;
+    });
+  }, { permission: 'invoice.write' });
+
   router.delete('/api/invoices/:iid/lines/:id', async (ctx) => {
     /*
      * On vérifie l'appartenance et le statut plutôt que de laisser le
