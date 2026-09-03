@@ -1031,18 +1031,29 @@ describe('Catalogue — montant saisi librement', () => {
   });
 
   test('un même montant ne multiplie pas les tarifs', async () => {
+    /* Le montant est lu dans le catalogue ACTIF plutot que code en dur :
+     * resolveTariff ne reutilise que les tarifs actifs, et le catalogue a
+     * change (migration 006, passage a l'esthetique). */
+    // Un run interrompu peut laisser TESTDUP : la creation echouerait en 409.
+    await query(`DELETE FROM appointment_type WHERE code = 'TESTDUP'`);
+    await query(`DELETE FROM tariff WHERE code = 'TESTDUP'`);
+    const ref = await one(
+      `SELECT amount FROM tariff WHERE is_active
+          AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+        ORDER BY code LIMIT 1`);
+    const amount = Number(ref.amount);
     const before = await one(`SELECT count(*)::int AS n FROM tariff`);
     const t = await (await api('/api/appointment-types', { method: 'POST',
       body: { code: 'TESTDUP', label: 'Test doublon',
-              defaultDurationMinutes: 20, defaultAmount: 1500 } })).json();
+              defaultDurationMinutes: 20, defaultAmount: amount } })).json();
     const after = await one(`SELECT count(*)::int AS n FROM tariff`);
     assert.equal(after.n, before.n,
-      'un tarif à 1500 existe déjà (C) : il devait être réutilisé, pas dupliqué');
+      `un tarif a ${amount} existe deja : il devait etre reutilise, pas duplique`);
 
     const linked = await one(
       `SELECT t.amount FROM appointment_type at
          JOIN tariff t ON t.id = at.default_tariff_id WHERE at.id = $1`, [t.id]);
-    assert.equal(Number(linked.amount), 1500);
+    assert.equal(Number(linked.amount), amount);
     await query(`DELETE FROM appointment_type WHERE id = $1`, [t.id]);
   });
 
