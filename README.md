@@ -17,6 +17,7 @@ fonctionnalité en ligne, aucune dépendance externe à l'exécution.
 | [07 — Améliorations & adaptation Algérie](docs/07-ameliorations-design-ihm-admin-algerie.md) | Refonte visuelle, simplification IHM, tableau de bord admin, conformité locale |
 | [08 — Encaissement après consultation](docs/08-encaissement-apres-consultation.md) | Conception de l'écran de facture éditable et d'encaissement en un clic |
 | [08 — Gouvernance, rôles et personnalisation](docs/08-gouvernance-roles-personnalisation.md) | CRUD utilisateurs/patients, superutilisateur, RBAC modifiable, thème et logo |
+| [09 — Installateur Windows](docs/09-installateur-windows.md) | Programme d'installation à double-clic, et script NSIS pour produire un setup.exe |
 
 ## Résumé exécutif
 
@@ -171,11 +172,23 @@ git checkout arena/01a0629d-repo
 ./install.sh              # Linux / macOS — installe puis démarre l'application
 ```
 
+**Windows 10/11 — double-clic sur `Installer-CliniRDV.cmd`.** C'est la méthode
+recommandée : ce programme d'installation vérifie le système, installe Node.js
+si besoin, prépare la base, compile l'interface, dépose un raccourci
+**CliniRDV** sur le Bureau et lance l'application. Aucune ligne de commande.
+
 ```powershell
-# Windows 10/11 (PowerShell)
+# Équivalent en ligne de commande
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
 ```
+
+> **Pourquoi un `.cmd` et non un `setup.exe` ?** Produire un exécutable Windows
+> demande un compilateur d'installateurs (NSIS, Inno Setup) qui n'est pas
+> disponible dans l'environnement de construction actuel. Le `.cmd` offre le
+> même parcours pour l'utilisateur — un double-clic — sans binaire à signer ni
+> à faire approuver par SmartScreen. La marche à suivre pour générer un vrai
+> `setup.exe` est décrite dans `docs/09-installateur-windows.md`.
 
 Options : `--no-start` / `-NoStart` (installer sans démarrer) et `--reset` / `-Reset`
 (réinitialiser la base avant réinstallation).

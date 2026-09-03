@@ -167,6 +167,31 @@ Write-Host @"
     .\install.ps1 -Reset       reinstallation complete
 "@
 
+# Raccourci sur le Bureau : un utilisateur de clinique ne doit pas avoir a
+# retrouver un dossier ni a taper une commande pour ouvrir le logiciel.
+Step "Raccourci sur le Bureau"
+try {
+  $desktop  = [Environment]::GetFolderPath('Desktop')
+  $lnk      = Join-Path $desktop 'CliniRDV.lnk'
+  $target   = Join-Path $PSScriptRoot 'Demarrer-CliniRDV.cmd'
+  if (Test-Path $target) {
+    $shell = New-Object -ComObject WScript.Shell
+    $sc = $shell.CreateShortcut($lnk)
+    $sc.TargetPath       = $target
+    $sc.WorkingDirectory = $PSScriptRoot
+    $sc.Description      = 'CliniRDV - Gestion des rendez-vous de clinique'
+    $sc.IconLocation     = "$env:SystemRoot\System32\imageres.dll,144"
+    $sc.Save()
+    Ok "Raccourci « CliniRDV » cree sur le Bureau"
+  } else {
+    Warn "Demarrer-CliniRDV.cmd introuvable : raccourci non cree"
+  }
+} catch {
+  # Un poste verrouille peut interdire l'ecriture sur le Bureau. Ce n'est
+  # pas une raison d'echouer une installation par ailleurs complete.
+  Warn "Raccourci non cree ($($_.Exception.Message))"
+}
+
 # Diagnostic final : valide chaque maillon avant de rendre la main.
 Step "Diagnostic de l'installation"
 node scripts/doctor.mjs
