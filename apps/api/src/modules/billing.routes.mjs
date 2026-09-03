@@ -412,8 +412,13 @@ export function registerBillingRoutes(router) {
   /* ------------------------------ Impayés ------------------------------ */
   router.get('/api/invoices/reports/outstanding', async () => ({
     items: await many(
+      /* patient_id est indispensable : la ligne du tableau des impayés est
+         cliquable et ouvre la fiche client. Sans cette colonne, le front
+         appelait /api/patients/undefined -> 22P02 -> « Format de donnée
+         invalide ». */
       `SELECT i.id, i.number, i.issued_at, i.due_date, i.total_amount, i.paid_amount, i.balance,
               (CURRENT_DATE - i.due_date) AS days_overdue,
+              i.patient_id,
               p.mrn, p.last_name, p.first_name, p.phone_mobile
          FROM invoice i JOIN patient p ON p.id = i.patient_id
         WHERE i.status IN ('ISSUED','PARTIALLY_PAID','OVERDUE') AND i.balance > 0

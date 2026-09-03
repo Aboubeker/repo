@@ -18,9 +18,17 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
   const [error, setError] = useState(null);
   const [addHistory, setAddHistory] = useState(false);
 
-  const load = () => api.client(id).then(setD).catch(setError);
+  /*
+   * Garde sur l'identifiant. Un appelant qui transmet un id absent
+   * produisait /api/patients/undefined : Postgres rejetait l'UUID (22P02) et
+   * l'ecran affichait « Format de donnee invalide », message technique qui
+   * ne disait ni ou ni pourquoi. On n'appelle plus l'API sans identifiant.
+   */
+  const load = () => { if (id) api.client(id).then(setD).catch(setError); };
   useEffect(() => { setD(null); load(); }, [id]);
 
+  if (!id) return <ErrorAlert error={{ message:
+    'Aucun client selectionne : cette fiche a ete ouverte sans identifiant.' }} />;
   if (error) return <ErrorAlert error={error} />;
   if (!d) return <Spinner />;
 

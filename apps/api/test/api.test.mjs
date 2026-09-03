@@ -742,6 +742,34 @@ describe('Facturation', () => {
     assert.equal((await r.json()).error.code, 'AMOUNT_EXCEEDS_BALANCE');
   });
 
+  /* Regression : chaque ligne du tableau des impayes est cliquable et ouvre
+   * la fiche client via go('patient', i.patient_id). La requete ne
+   * selectionnait pas patient_id -> le front appelait /api/patients/undefined,
+   * Postgres rejetait l'UUID (22P02) et l'ecran affichait « Format de donnee
+   * invalide ». Toute colonne dont le front derive une navigation doit etre
+   * renvoyee explicitement. */
+  test('le rapport des impayes fournit de quoi ouvrir la fiche client', async () => {
+    const r = await api('/api/invoices/reports/outstanding');
+    assert.equal(r.status, 200);
+    const { items } = await r.json();
+    assert.ok(items.length > 0, 'jeu de donnees avec au moins un impaye');
+    for (const i of items) {
+      assert.ok(i.patient_id,
+        `facture ${i.number} : patient_id manquant, la ligne est cliquable`);
+      assert.match(i.patient_id,
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    }
+    // La fiche visee doit reellement s'ouvrir.
+    const f = await api(`/api/patients/${items[0].patient_id}`);
+    assert.equal(f.status, 200);
+  });
+
+  test('un identifiant client malforme est refuse proprement', async () => {
+    const r = await api('/api/patients/undefined');
+    assert.equal(r.status, 400, 'ni 500, ni page blanche');
+    assert.equal((await r.json()).error.code, 'VALIDATION_ERROR');
+  });
+
   test('correction par avoir', async () => {
     const r = await api(`/api/invoices/${invoiceId}/credit`, { method: 'POST',
       body: { reason: 'Erreur de tarification' } });
