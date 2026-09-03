@@ -5,9 +5,20 @@ import {
   fmtDate, fmtTime, fmtMoney, fmtName, age, can, useToast,
 } from '../lib.jsx';
 
+/*
+ * Onglet « Consentements » et bloc « Couverture » retires de la fiche a la
+ * demande de la clinique d'esthetique : la prise en charge par un organisme
+ * (CNAS/CASNOS) ne s'applique pas a des actes esthetiques, non remboursables.
+ *
+ * Seul l'AFFICHAGE disparait. Les donnees restent en base et continuent de
+ * servir : patient_insurance alimente la ventilation assurance/client des
+ * factures (fn_recalc_invoice_shares) et consent conditionne l'envoi des
+ * rappels automatiques (notifications.service). Les supprimer casserait ces
+ * deux mecanismes.
+ */
 const TABS = [
   ['identity', 'Identité'], ['medical', 'Médical'], ['appointments', 'Rendez-vous'],
-  ['billing', 'Facturation'], ['consents', 'Consentements'],
+  ['billing', 'Facturation'],
 ];
 
 export default function PatientFile({ id, user, go, onNewAppt }) {
@@ -111,22 +122,6 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
                 <dt>Adresse</dt><dd>{p.address_line1 || '—'}</dd>
                 <dt>Ville</dt><dd>{[p.postal_code, p.city].filter(Boolean).join(' ') || '—'}</dd>
               </dl>
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-head"><h3>Couverture</h3></div>
-            <div className="card-body">
-              {d.insurances.length === 0 ? <span className="muted">Aucune couverture enregistrée.</span>
-                : d.insurances.map((i) => (
-                  <div key={i.id} style={{ marginBottom: 9 }}>
-                    <strong>{i.insurer_name || i.scheme}</strong>
-                    {i.is_primary && <span className="badge blue" style={{ marginLeft: 6 }}>principale</span>}
-                    <div className="muted small">
-                      Prise en charge {i.coverage_rate}%
-                      {i.valid_to && ` · valable jusqu'au ${fmtDate(i.valid_to)}`}
-                    </div>
-                  </div>
-                ))}
             </div>
           </div>
           <div className="card">
@@ -245,35 +240,6 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
         </div>
       )}
 
-      {tab === 'consents' && (
-        <div className="card">
-          <div className="card-head"><h3>Consentements</h3></div>
-          <div className="card-body">
-            {CONSENTS.map(([kind, label]) => {
-              const c = d.consents.find((x) => x.kind === kind);
-              return (
-                <div key={kind} style={{ display: 'flex', alignItems: 'center', gap: 12,
-                                         padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div>{label}</div>
-                    {c && <div className="muted small">
-                      {c.granted ? `Accordé le ${fmtDate(c.granted_at)}`
-                                 : `Révoqué le ${fmtDate(c.revoked_at)}`}</div>}
-                  </div>
-                  <span className={`badge ${c?.granted ? 'green' : 'gray'}`}>
-                    {c?.granted ? 'Accordé' : 'Non accordé'}</span>
-                </div>
-              );
-            })}
-            <div className="alert info" style={{ marginTop: 14 }}>
-              <span>ⓘ</span>
-              <div>Sans consentement, aucun rappel automatique n'est envoyé :
-                le client apparaît dans la liste d'appels de l'accueil.</div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {addHistory && <AddHistory patientId={p.id} onClose={() => setAddHistory(false)}
         onDone={() => { setAddHistory(false); load(); }} />}
     </>
@@ -286,12 +252,6 @@ const CATEGORY = {
   LIFESTYLE: 'Mode de vie', NOTE: 'Note',
 };
 const SEVERITY = { LOW: 'Faible', MODERATE: 'Modérée', HIGH: 'Élevée', CRITICAL: 'Critique' };
-const CONSENTS = [
-  ['DATA_PROCESSING', 'Traitement des données personnelles'],
-  ['SMS_REMINDER', 'Rappels par SMS'],
-  ['EMAIL_REMINDER', 'Rappels par e-mail'],
-  ['DATA_SHARING', 'Partage avec d\'autres professionnels'],
-];
 
 function AddHistory({ patientId, onClose, onDone }) {
   const [f, setF] = useState({ category: 'ALLERGY', label: '', severity: '', detail: '' });
