@@ -15,6 +15,7 @@ fonctionnalité en ligne, aucune dépendance externe à l'exécution.
 | [05 — Points techniques critiques](docs/05-points-techniques-critiques.md) | Auth locale + MFA, gestion d'erreurs, sauvegarde/restauration, RGPD, exploitation |
 | [06 — Interface utilisateur](docs/06-interface-utilisateur.md) | Wireframes ASCII des 12 écrans clés, raccourcis, ergonomie, impressions |
 | [07 — Améliorations & adaptation Algérie](docs/07-ameliorations-design-ihm-admin-algerie.md) | Refonte visuelle, simplification IHM, tableau de bord admin, conformité locale |
+| [08 — Encaissement après consultation](docs/08-encaissement-apres-consultation.md) | Conception de l'écran de facture éditable et d'encaissement en un clic |
 | [08 — Gouvernance, rôles et personnalisation](docs/08-gouvernance-roles-personnalisation.md) | CRUD utilisateurs/patients, superutilisateur, RBAC modifiable, thème et logo |
 
 ## Résumé exécutif
