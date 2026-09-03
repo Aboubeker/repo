@@ -799,6 +799,72 @@ describe('Intégrité et exploitation', () => {
 /* ======================================================================
    Gouvernance : rôles, superutilisateur, apparence
    ====================================================================== */
+describe('Catalogue — montant saisi librement', () => {
+
+  test('le montant crée ou réutilise un tarif, sans toucher aux autres types', async () => {
+    /*
+     * Le formulaire propose désormais un montant libre plutôt qu'une liste
+     * de tarifs. Le piège : « C » est partagé par CS-GEN et URGENCE.
+     * Écraser son montant parce qu'on modifie l'un changerait le prix de
+     * l'autre — invisible jusqu'à la facturation.
+     */
+    const shared = await one(`SELECT id FROM tariff WHERE code = 'C'`);
+    const gen = await one(`SELECT id FROM appointment_type WHERE code = 'CS-GEN'`);
+    const urg = await one(
+      `SELECT at.id, t.amount FROM appointment_type at
+         JOIN tariff t ON t.id = at.default_tariff_id
+        WHERE at.code = 'URGENCE'`);
+    assert.equal(urg.amount, 1500, 'préalable : URGENCE facturé 1500 via le tarif C');
+
+    const r = await api(`/api/appointment-types/${gen.id}`, { method: 'PATCH',
+      body: { defaultAmount: 1700 } });
+    assert.equal(r.status, 200);
+
+    const after = await one(
+      `SELECT t.id, t.amount FROM appointment_type at
+         JOIN tariff t ON t.id = at.default_tariff_id WHERE at.id = $1`, [gen.id]);
+    assert.equal(Number(after.amount), 1700, 'le nouveau montant doit être appliqué');
+    assert.notEqual(after.id, shared.id,
+      'un tarif partagé ne doit jamais être détourné : il fallait en créer un autre');
+
+    const urgAfter = await one(
+      `SELECT t.amount FROM appointment_type at
+         JOIN tariff t ON t.id = at.default_tariff_id WHERE at.id = $1`, [urg.id]);
+    assert.equal(Number(urgAfter.amount), 1500,
+      'URGENCE a changé de prix alors que seul CS-GEN était modifié');
+
+    // Remise en état pour ne pas polluer les autres tests.
+    await query(`UPDATE appointment_type SET default_tariff_id = $2 WHERE id = $1`,
+      [gen.id, shared.id]);
+  });
+
+  test('un même montant ne multiplie pas les tarifs', async () => {
+    const before = await one(`SELECT count(*)::int AS n FROM tariff`);
+    const t = await (await api('/api/appointment-types', { method: 'POST',
+      body: { code: 'TESTDUP', label: 'Test doublon',
+              defaultDurationMinutes: 20, defaultAmount: 1500 } })).json();
+    const after = await one(`SELECT count(*)::int AS n FROM tariff`);
+    assert.equal(after.n, before.n,
+      'un tarif à 1500 existe déjà (C) : il devait être réutilisé, pas dupliqué');
+
+    const linked = await one(
+      `SELECT t.amount FROM appointment_type at
+         JOIN tariff t ON t.id = at.default_tariff_id WHERE at.id = $1`, [t.id]);
+    assert.equal(Number(linked.amount), 1500);
+    await query(`DELETE FROM appointment_type WHERE id = $1`, [t.id]);
+  });
+
+  test('sans montant, le type reste sans tarif', async () => {
+    const t = await (await api('/api/appointment-types', { method: 'POST',
+      body: { code: 'TESTNUL', label: 'Test sans tarif',
+              defaultDurationMinutes: 15 } })).json();
+    assert.equal(t.default_tariff_id, null,
+      'aucun montant saisi : aucun tarif ne doit être inventé');
+    await query(`DELETE FROM appointment_type WHERE id = $1`, [t.id]);
+  });
+});
+
+/* ====================================================================== */
 describe('Gouvernance', () => {
   const cleanup = async () => {
     await query(`DELETE FROM role_permission WHERE role_id IN

@@ -209,22 +209,44 @@ describe('Document imprimable', () => {
     return css.slice(start + 1, j - 1);
   };
 
-  test('aucun ancêtre de la facture n\'est masqué à l\'impression', () => {
-    // Chaîne réelle du DOM jusqu'au document.
-    const chain = ['.app', '.main', '.content', '.overlay', '.modal',
-                   '.modal-body', '.print-doc'];
-    const hidden = [];
-    for (const rule of printBlock().split('}')) {
-      const [sel, decl] = rule.split('{');
-      if (!decl || !/display:\s*none/.test(decl)) continue;
-      for (const s of sel.split(',').map((x) => x.trim())) {
-        // Les sélecteurs qui excluent explicitement le document sont sûrs.
-        if (s.includes(':not(:has(.print-doc))') || s.includes(':not(.print-doc)')) continue;
-        if (chain.includes(s)) hidden.push(s);
-      }
-    }
-    assert.deepEqual(hidden, [],
-      `ces ancêtres masqués rendraient la facture invisible : ${hidden.join(', ')}`);
+  test('le document est monté hors de l\'application, pas dans la modale', () => {
+    /*
+     * Le document vivait dans la modale, donc parmi les frères de la liste
+     * des factures. Pour n'imprimer que lui il fallait « :has() » — et si
+     * le navigateur l'ignore, la règle tombe et c'est la LISTE COMPLÈTE qui
+     * s'imprime. Le portail supprime cette dépendance.
+     */
+    const doc = read('InvoicePrint.jsx');
+    assert.ok(/createPortal/.test(doc),
+      'le document doit être monté par portail hors de l\'arbre applicatif');
+    assert.ok(/print-root/.test(doc),
+      'le portail doit viser un conteneur dédié (#print-root)');
+  });
+
+  test('la règle d\'impression ne dépend d\'aucun sélecteur :has()', () => {
+    /*
+     * « :has() » n'est pas universellement supporté. Un seul sélecteur
+     * invalide suffit à annuler la règle qui le porte : l'application
+     * resterait visible et la liste s'imprimerait derrière la facture.
+     */
+    const block = printBlock();
+    assert.ok(!/:has\(/.test(block),
+      ':has() dans @media print : si le navigateur l\'ignore, la liste complète s\'imprime');
+  });
+
+  test('l\'application est masquée quand un document est ouvert', () => {
+    const block = printBlock();
+    assert.ok(/printing-doc[^{]*#root[^{]*\{[^}]*display:\s*none/.test(block),
+      'body.printing-doc #root doit être masqué à l\'impression');
+    assert.ok(/#print-root[^{]*\{[^}]*display:\s*block/.test(block),
+      '#print-root doit rester visible à l\'impression');
+
+    // La classe doit être posée ET retirée, sinon les autres écrans
+    // deviennent inimprimables après la première facture consultée.
+    const doc = read('InvoicePrint.jsx');
+    assert.ok(/classList\.add\('printing-doc'\)/.test(doc), 'classe jamais posée');
+    assert.ok(/classList\.remove\('printing-doc'\)/.test(doc),
+      'classe jamais retirée : les autres écrans resteraient inimprimables');
   });
 
   test('une seule règle @media print, pour éviter les contradictions', () => {

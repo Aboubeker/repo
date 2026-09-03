@@ -630,31 +630,31 @@ kbd { font-family: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 
 .print-doc { display: none; }
 
 @media print {
-  /* .app n'est PAS masqué : la modale est rendue à l'intérieur, la masquer
-     emporterait le document avec elle. On neutralise sa grille et on cache
-     ses parties écran une à une. */
-  .sidebar, .topbar, .tabs, .btn, .drawer, .drawer-overlay, .toast-wrap,
-  .action-strip, .page-head .ph-actions { display: none !important; }
-  .card { box-shadow: none; border: 1px solid #999; }
-  .app { display: block !important; }
   /*
-   * La modale est rendue DANS .content : masquer .content emporterait le
-   * document. On ne masque donc que les blocs de la page qui ne
-   * contiennent pas le document — la liste des factures, les statistiques —
-   * en gardant la chaîne d'ancêtres du .print-doc visible.
+   * Règle binaire, sans sélecteur conditionnel.
+   *
+   * Le document imprimable est monté hors de l'application, directement
+   * sous <body> (#print-root). Il suffit donc de masquer l'application et
+   * de montrer le document. La version précédente s'appuyait sur « :has() »
+   * pour trier les frères de la modale : un navigateur qui ignore « :has() »
+   * invalidait la règle et imprimait la LISTE COMPLÈTE des factures.
+   *
+   * Quand aucun document n'est ouvert, #print-root est vide : les autres
+   * écrans s'impriment donc normalement via leur propre contenu.
    */
-  .content:has(.print-doc) > *:not(:has(.print-doc)) { display: none !important; }
-  .content { padding: 0 !important; }
+  /* Une simple classe posée sur <body> pendant que le document est ouvert :
+     aucun sélecteur exotique, donc aucun risque d'invalidation. */
+  body.printing-doc #root { display: none !important; }
 
-  /* L'overlay ne sert plus que de conteneur : on le neutralise sans le
-     masquer, sinon le document qu'il contient disparaîtrait avec lui. */
-  .overlay { position: static !important; display: block !important;
-    background: none !important; padding: 0 !important; overflow: visible !important; }
-  .modal, .modal-body { max-width: none !important; max-height: none !important;
-    box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
-  .modal-head, .modal-foot { display: none !important; }
-  /* Le contenu écran de la modale cède la place au document imprimable. */
-  .modal-body > *:not(.print-doc) { display: none !important; }
+  #print-root { display: block !important; }
+
+  /* Écrans sans document dédié (planning, file d'attente…) : on se contente
+     de retirer l'habillage. */
+  .sidebar, .topbar, .tabs, .btn, .drawer, .drawer-overlay, .toast-wrap,
+  .overlay, .action-strip, .page-head .ph-actions { display: none !important; }
+  .app { display: block !important; }
+  .content { padding: 0 !important; }
+  .card { box-shadow: none; border: 1px solid #999; }
 
   body { background: #fff; font-size: 11pt; color: #000; }
   @page { size: A4; margin: 14mm; }

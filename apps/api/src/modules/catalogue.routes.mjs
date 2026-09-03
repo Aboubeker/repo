@@ -17,7 +17,7 @@
  * (`/api/appointment-types` dans admin.routes, `/api/tariffs` dans billing).
  * Sans ces routes, changer un prix imposait d'ouvrir psql.
  */
-import { many, one, query } from '../core/db.mjs';
+import { many, one, query, tx } from '../core/db.mjs';
 import { notFound, unprocessable } from '../core/errors.mjs';
 import { writeAudit } from '../core/audit.mjs';
 import { validate } from '../core/validate.mjs';
@@ -42,8 +42,73 @@ const typeSchema = {
   requiresRoom: { type: 'boolean', default: true },
   color: { type: 'string', max: 9, default: '#3b82f6' },
   defaultTariffId: { type: 'uuid' },
+  /*
+   * Montant saisi librement dans le formulaire.
+   *
+   * Le prix reste porté par la table `tariff` — c'est elle que les lignes
+   * de facture référencent, et l'historique en dépend. Ce champ est une
+   * commodité de saisie : l'API se charge de trouver ou de créer le tarif
+   * correspondant. Voir resolveTariff().
+   */
+  defaultAmount: { type: 'number', min: 0, max: 10000000 },
   preparationInstructions: { type: 'string', max: 1000 },
 };
+
+/**
+ * Traduit un montant saisi en identifiant de tarif.
+ *
+ * Règles, dans l'ordre :
+ *   1. montant absent            → on garde le tarif choisi, s'il y en a un ;
+ *   2. le tarif actuel du type porte déjà ce montant ET n'est utilisé par
+ *      aucun autre type → on le met à jour sur place ;
+ *   3. un tarif actif porte déjà ce montant → on le réutilise ;
+ *   4. sinon → on crée un tarif propre à ce type.
+ *
+ * Le point 2 est la raison d'être de cette fonction : le tarif « C » est
+ * partagé par « CS-GEN » et « URGENCE ». Écraser son montant parce qu'on
+ * modifie l'un des deux changerait le prix de l'autre à son insu — et,
+ * comme les lignes de facture copient le prix à l'émission, personne ne
+ * s'en apercevrait avant la fin du mois.
+ */
+export async function resolveTariff(c, { amount, currentTariffId, typeCode, typeLabel, specialtyId }) {
+  if (amount === undefined || amount === null) return currentTariffId ?? null;
+
+  if (currentTariffId) {
+    const { rows: [cur] } = await c.query(
+      `SELECT t.id, t.amount,
+              (SELECT count(*) FROM appointment_type at
+                WHERE at.default_tariff_id = t.id) AS used_by_types
+         FROM tariff t WHERE t.id = $1`, [currentTariffId]);
+    if (cur) {
+      if (Number(cur.amount) === Number(amount)) return cur.id;   // rien à faire
+      if (Number(cur.used_by_types) <= 1) {
+        await c.query('UPDATE tariff SET amount = $2 WHERE id = $1', [cur.id, amount]);
+        return cur.id;
+      }
+    }
+  }
+
+  const { rows: [same] } = await c.query(
+    `SELECT id FROM tariff WHERE amount = $1 AND is_active
+        AND (valid_to IS NULL OR valid_to >= CURRENT_DATE)
+      ORDER BY code LIMIT 1`, [amount]);
+  if (same) return same.id;
+
+  // Code dérivé du type, suffixé si besoin : `tariff.code` est unique.
+  const base = String(typeCode || 'ACTE').slice(0, 16).toUpperCase();
+  let code = base, n = 1;
+  /* eslint-disable no-await-in-loop */
+  while (true) {
+    const { rows: [clash] } = await c.query('SELECT 1 FROM tariff WHERE code = $1', [code]);
+    if (!clash) break;
+    code = `${base}-${++n}`;
+  }
+  const { rows: [created] } = await c.query(
+    `INSERT INTO tariff (code, label, amount, vat_rate, specialty_id)
+     VALUES ($1,$2,$3,0,$4) RETURNING id`,
+    [code, typeLabel || code, amount, specialtyId ?? null]);
+  return created.id;
+}
 
 export function registerCatalogueRoutes(router) {
 
@@ -209,15 +274,23 @@ export function registerCatalogueRoutes(router) {
      * leur prise : la modifier dans leur dos surprendrait patients et
      * praticiens.
      */
-    const after = await one(
-      `UPDATE appointment_type SET code=$2, label=$3, specialty_id=$4,
-              default_duration_minutes=$5, buffer_before_minutes=$6,
-              buffer_after_minutes=$7, requires_room=$8, color=$9,
-              default_tariff_id=$10, preparation_instructions=$11
-        WHERE id=$1 RETURNING *`,
-      [ctx.params.id, d.code, d.label, d.specialtyId, d.defaultDurationMinutes,
-       d.bufferBeforeMinutes ?? 0, d.bufferAfterMinutes ?? 0,
-       d.requiresRoom ?? true, d.color, d.defaultTariffId, d.preparationInstructions]);
+    const after = await tx(async (c) => {
+      // Montant saisi librement : traduit en tarif, sans jamais écraser le
+      // prix d'un tarif partagé par un autre type de rendez-vous.
+      const tariffId = await resolveTariff(c, {
+        amount: ctx.body.defaultAmount, currentTariffId: d.defaultTariffId,
+        typeCode: d.code, typeLabel: d.label, specialtyId: d.specialtyId });
+      const { rows: [row] } = await c.query(
+        `UPDATE appointment_type SET code=$2, label=$3, specialty_id=$4,
+                default_duration_minutes=$5, buffer_before_minutes=$6,
+                buffer_after_minutes=$7, requires_room=$8, color=$9,
+                default_tariff_id=$10, preparation_instructions=$11
+          WHERE id=$1 RETURNING *`,
+        [ctx.params.id, d.code, d.label, d.specialtyId, d.defaultDurationMinutes,
+         d.bufferBeforeMinutes ?? 0, d.bufferAfterMinutes ?? 0,
+         d.requiresRoom ?? true, d.color, tariffId, d.preparationInstructions]);
+      return row;
+    });
 
     await writeAudit(ctx, { action: 'UPDATE', entity: 'appointment_type', entityId: after.id,
       summary: `Type de RDV modifié : ${after.label} (${after.default_duration_minutes} min)`,

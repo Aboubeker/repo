@@ -925,7 +925,7 @@ function Catalogue() {
         </div>
       </div>
 
-      {typeForm && <AppointmentTypeForm row={typeForm.row} tariffs={d.tariffs}
+      {typeForm && <AppointmentTypeForm row={typeForm.row}
         specialties={d.specialties} onClose={() => setTypeForm(null)}
         onDone={() => { setTypeForm(null); load(); }} />}
 
@@ -949,7 +949,7 @@ function Catalogue() {
 }
 
 /** Formulaire d'un type de rendez-vous : durée, battement, tarif par défaut. */
-function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
+function AppointmentTypeForm({ row, specialties, onClose, onDone }) {
   const editing = Boolean(row);
   const [f, setF] = useState({
     code: row?.code || '', label: row?.label || '',
@@ -960,6 +960,9 @@ function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
     requiresRoom: row?.requires_room ?? true,
     color: row?.color || '#3b82f6',
     defaultTariffId: row?.default_tariff_id || '',
+    // Montant saisi directement. Il est initialisé depuis le tarif en
+    // vigueur pour que l'écran de modification montre le prix réel.
+    defaultAmount: row?.tariff_amount != null ? String(Number(row.tariff_amount)) : '',
     preparationInstructions: row?.preparation_instructions || '',
   });
   const [error, setError] = useState(null);
@@ -974,9 +977,22 @@ function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
     try {
       // Les listes déroulantes rendent '' quand rien n'est choisi ; l'API
       // attend un UUID ou l'absence du champ, pas une chaîne vide.
+      /*
+       * Le montant prime sur l'ancien identifiant de tarif : c'est lui que
+       * l'utilisateur vient de saisir. Le serveur le traduit en tarif
+       * (réutilisé s'il existe déjà, créé sinon), sans modifier le prix
+       * d'un tarif partagé par un autre type de rendez-vous.
+       */
+      const amount = f.defaultAmount === '' ? undefined : Number(f.defaultAmount);
+      if (amount !== undefined && (Number.isNaN(amount) || amount < 0)) {
+        setBusy(false);
+        setError({ message: 'Le montant doit être un nombre positif.' });
+        return;
+      }
       const body = { ...f,
         specialtyId: f.specialtyId || undefined,
-        defaultTariffId: f.defaultTariffId || undefined };
+        defaultTariffId: f.defaultTariffId || undefined,
+        defaultAmount: amount };
       if (editing) await api.updateAppointmentType(row.id, body);
       else await api.createAppointmentType(body);
       toast.success(editing ? 'Type mis à jour.' : 'Type créé.');
@@ -986,7 +1002,7 @@ function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
 
   const total = Number(f.defaultDurationMinutes || 0)
     + Number(f.bufferBeforeMinutes || 0) + Number(f.bufferAfterMinutes || 0);
-  const chosen = tariffs.find((t) => t.id === f.defaultTariffId);
+  const amountPreview = f.defaultAmount === '' ? null : Number(f.defaultAmount);
 
   return (
     <Modal title={editing ? `Modifier « ${row.label} »` : 'Nouveau type de rendez-vous'}
@@ -1035,16 +1051,13 @@ function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
 
       <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Facturation</h4>
       <div className="row">
-        <Field label="Tarif appliqué par défaut"
-               help="Reporté sur la facture ; modifiable acte par acte.">
-          <select value={f.defaultTariffId}
-                  onChange={(e) => set('defaultTariffId', e.target.value)}>
-            <option value="">— Aucun —</option>
-            {tariffs.filter((t) => t.is_active).map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.code} — {t.label} ({t.amount})</option>
-            ))}
-          </select></Field>
+        <Field label="Tarif appliqué par défaut (DA)"
+               error={error?.details?.defaultAmount}
+               help="Montant facturé pour cet acte ; modifiable acte par acte.">
+          <input type="number" min="0" step="50" inputMode="numeric"
+                 placeholder="Par exemple 1500"
+                 value={f.defaultAmount}
+                 onChange={(e) => set('defaultAmount', e.target.value)} /></Field>
         <Field label="Spécialité">
           <select value={f.specialtyId} onChange={(e) => set('specialtyId', e.target.value)}>
             <option value="">— Aucune —</option>
@@ -1052,9 +1065,9 @@ function AppointmentTypeForm({ row, tariffs, specialties, onClose, onDone }) {
               <option key={sp.id} value={sp.id}>{sp.label}</option>))}
           </select></Field>
       </div>
-      {chosen && (
+      {amountPreview != null && !Number.isNaN(amountPreview) && (
         <p className="muted small" style={{ marginTop: -6 }}>
-          Un rendez-vous de ce type sera facturé <strong>{fmtMoney(chosen.amount)}</strong>.
+          Un rendez-vous de ce type sera facturé <strong>{fmtMoney(amountPreview)}</strong>.
         </p>
       )}
 

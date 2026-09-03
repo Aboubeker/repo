@@ -11,7 +11,28 @@
  * Ce bloc est masqué à l'écran et n'apparaît qu'à l'impression (.print-doc).
  */
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { fmtMoney, fmtDate, fmtName, amountToWords } from './lib.jsx';
+
+/*
+ * Le document est monté DANS <body>, hors de l'arbre de l'application.
+ *
+ * Il vivait auparavant dans la modale, donc à l'intérieur de « .content » :
+ * pour n'imprimer que lui, la feuille devait masquer ses frères au moyen de
+ * « :has() ». Or si le navigateur ignore « :has() », la règle entière est
+ * invalide et la LISTE COMPLÈTE des factures s'imprime à la place de la
+ * facture. En sortant le document de l'arbre, la règle d'impression devient
+ * binaire — masquer #root, montrer le document — sans sélecteur conditionnel.
+ */
+function printRoot() {
+  let el = document.getElementById('print-root');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'print-root';
+    document.body.appendChild(el);
+  }
+  return el;
+}
 
 function Mentions({ b }) {
   const bits = [
@@ -25,6 +46,20 @@ function Mentions({ b }) {
 }
 
 export default function InvoicePrint({ invoice, lines, payments, branding }) {
+  /*
+   * Tant qu'un document est monté, <body> porte « printing-doc » : la
+   * feuille d'impression masque alors l'application entière. La classe est
+   * retirée au démontage, sinon les autres écrans deviendraient
+   * inimprimables après la première facture consultée.
+   */
+  React.useEffect(function markPrinting() {
+    if (!invoice) return undefined;
+    document.body.classList.add('printing-doc');
+    return function cleanup() {
+      document.body.classList.remove('printing-doc');
+    };
+  }, [invoice]);
+
   if (!invoice) return null;
   const b = branding || {};
   const inv = invoice;
@@ -39,7 +74,7 @@ export default function InvoicePrint({ invoice, lines, payments, branding }) {
     : Number(inv.total_amount) || 0;
   const dueTotal = patientPart + stamp;
 
-  return (
+  return createPortal((
     <div className="print-doc" aria-hidden="true">
       <header className="pd-head">
         <div>
@@ -160,5 +195,5 @@ export default function InvoicePrint({ invoice, lines, payments, branding }) {
         {inv.notes && <div className="pd-notes">{inv.notes}</div>}
       </footer>
     </div>
-  );
+  ), printRoot());
 }

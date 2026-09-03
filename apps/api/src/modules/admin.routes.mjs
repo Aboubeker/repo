@@ -5,6 +5,7 @@ import { writeAudit } from '../core/audit.mjs';
 import { validate } from '../core/validate.mjs';
 import { hashPassword, validatePasswordStrength, revokeAllSessions } from '../core/auth.mjs';
 import { runBackup, listBackups, restoreBackup } from './backup.service.mjs';
+import { resolveTariff } from './catalogue.routes.mjs';
 import { processNotificationQueue, callList } from './notifications.service.mjs';
 
 export function registerAdminRoutes(router) {
@@ -137,15 +138,28 @@ export function registerAdminRoutes(router) {
       requiresRoom: { type: 'boolean', default: true },
       color: { type: 'string', max: 9, default: '#3b82f6' },
       defaultTariffId: { type: 'uuid' },
+      defaultAmount: { type: 'number', min: 0, max: 10000000 },
       preparationInstructions: { type: 'string', max: 1000 },
     });
-    const t = await one(
-      `INSERT INTO appointment_type (code, label, specialty_id, default_duration_minutes,
-         buffer_before_minutes, buffer_after_minutes, requires_room, color,
-         default_tariff_id, preparation_instructions)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [d.code, d.label, d.specialtyId, d.defaultDurationMinutes, d.bufferBeforeMinutes,
-       d.bufferAfterMinutes, d.requiresRoom, d.color, d.defaultTariffId, d.preparationInstructions]);
+    /*
+     * Le formulaire propose une saisie libre du montant. Le prix reste
+     * cependant porté par la table `tariff`, que les lignes de facture
+     * référencent : on traduit donc le montant en tarif, en réutilisant un
+     * tarif existant de même montant plutôt que d'en multiplier les doublons.
+     */
+    const t = await tx(async (c) => {
+      const tariffId = await resolveTariff(c, {
+        amount: d.defaultAmount, currentTariffId: d.defaultTariffId,
+        typeCode: d.code, typeLabel: d.label, specialtyId: d.specialtyId });
+      const { rows: [row] } = await c.query(
+        `INSERT INTO appointment_type (code, label, specialty_id, default_duration_minutes,
+           buffer_before_minutes, buffer_after_minutes, requires_room, color,
+           default_tariff_id, preparation_instructions)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [d.code, d.label, d.specialtyId, d.defaultDurationMinutes, d.bufferBeforeMinutes,
+         d.bufferAfterMinutes, d.requiresRoom, d.color, tariffId, d.preparationInstructions]);
+      return row;
+    });
     await writeAudit(ctx, { action: 'CREATE', entity: 'appointment_type', entityId: t.id,
       summary: `Type de RDV créé : ${t.label}` });
     return t;
