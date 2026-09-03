@@ -23,7 +23,7 @@ export default function Billing({ user, go }) {
                 onClick={() => setTab('cash')}>Caisse</button>
       </div>
       {tab === 'invoices'    && <Invoices user={user} go={go} />}
-      {tab === 'outstanding' && <Outstanding go={go} />}
+      {tab === 'outstanding' && <Outstanding user={user} go={go} />}
       {tab === 'cash'        && <Cash user={user} />}
     </>
   );
@@ -136,6 +136,29 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
     catch (e) { setError(e); } finally { setBusy(false); }
   };
 
+  /*
+   * Une facture n'est modifiable qu'a l'etat de brouillon : l'emission lui
+   * attribue un numero legal et la rend immuable (le serveur repond 422
+   * INVOICE_NOT_DRAFT). On n'affiche donc les controles d'edition que la ou
+   * ils peuvent aboutir, plutot que de laisser l'utilisateur decouvrir le
+   * refus apres coup.
+   */
+  const editable = inv.status === 'DRAFT' && can(user, 'invoice.write');
+
+  const changeLine = async (line, patch, previous) => {
+    const [field] = Object.keys(patch);
+    if (patch[field] === previous || Number.isNaN(patch[field])) return;
+    setBusy(true); setError(null);
+    try { await api.updateInvoiceLine(id, line.id, patch); load(); onChanged(); }
+    catch (e) { setError(e); load(); } finally { setBusy(false); }
+  };
+
+  const removeLine = async (line) => {
+    setBusy(true); setError(null);
+    try { await api.deleteInvoiceLine(id, line.id); load(); onChanged(); }
+    catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
   return (
     <Modal title={inv.number || 'Facture (brouillon)'} onClose={onClose} wide footer={
       <>
@@ -180,16 +203,51 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
 
       <table style={{ marginBottom: 14 }}>
         <thead><tr><th>Désignation</th><th className="num">Qté</th>
-          <th className="num">P.U.</th><th className="num">Total</th></tr></thead>
+          <th className="num">P.U.</th><th className="num">Total</th>
+          {editable && <th />}</tr></thead>
         <tbody>
           {d.lines.map((l) => (
             <tr key={l.id}>
               <td>{l.label}</td>
-              <td className="num">{Number(l.quantity)}</td>
-              <td className="num">{fmtMoney(l.unit_price)}</td>
+              <td className="num">
+                {editable ? (
+                  /* Edition en place : ouvrir une sous-fenetre pour changer
+                     un « 1 » en « 2 » couterait trois clics au lieu d'un. */
+                  <input type="number" min="0.01" step="1" defaultValue={Number(l.quantity)}
+                    style={{ width: 62, textAlign: 'right' }} disabled={busy}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    onBlur={(e) => changeLine(l, { quantity: Number(e.target.value) },
+                                              Number(l.quantity))} />
+                ) : Number(l.quantity)}
+              </td>
+              <td className="num">
+                {editable ? (
+                  <input type="number" min="0" step="50" defaultValue={Number(l.unit_price)}
+                    style={{ width: 92, textAlign: 'right' }} disabled={busy}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    onBlur={(e) => changeLine(l, { unitPrice: Number(e.target.value) },
+                                              Number(l.unit_price))} />
+                ) : fmtMoney(l.unit_price)}
+              </td>
               <td className="num">{fmtMoney(l.line_total)}</td>
+              {editable && (
+                <td className="num">
+                  <button className="btn ghost danger sm" disabled={busy}
+                          title="Retirer cette ligne"
+                          onClick={() => removeLine(l)}>✕</button>
+                </td>
+              )}
             </tr>
           ))}
+          {editable && (
+            <tr>
+              <td colSpan={5}>
+                <AddLine invoiceId={id} disabled={busy}
+                         onAdded={() => { load(); onChanged(); }}
+                         onError={setError} />
+              </td>
+            </tr>
+          )}
         </tbody>
         <tfoot>
           <tr><td colSpan={3} className="num muted">Sous-total</td>
@@ -246,6 +304,77 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
       <InvoicePrint invoice={inv} lines={d.lines} payments={d.payments}
                     branding={branding} />
     </Modal>
+  );
+}
+
+/*
+ * Ajout d'une ligne a une facture brouillon.
+ *
+ * Deux entrees, selon ce que l'on facture :
+ *  - le catalogue (GET /api/tariffs), cas courant : le libelle et le prix se
+ *    remplissent seuls, aucune saisie ;
+ *  - la saisie libre, pour ce qui n'y figure pas.
+ * C'est ce qui permet de porter plusieurs consultations sur une meme facture.
+ */
+function AddLine({ invoiceId, disabled, onAdded, onError }) {
+  const [tariffs, setTariffs] = useState(null);
+  const [label, setLabel] = useState('');
+  const [amount, setAmount] = useState('');
+  const [qty, setQty] = useState('1');
+  const [tariffId, setTariffId] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(function loadTariffs() {
+    api.tariffs().then((d) => setTariffs(d.items.filter((t) => t.is_active)))
+      .catch(() => setTariffs([]));
+  }, []);
+
+  const pick = (id) => {
+    setTariffId(id);
+    const t = (tariffs || []).find((x) => x.id === id);
+    if (t) { setLabel(t.label); setAmount(String(Number(t.amount))); }
+  };
+
+  const submit = async () => {
+    const unitPrice = Number(amount);
+    const quantity = Number(qty);
+    if (!label.trim() || Number.isNaN(unitPrice) || !quantity) return;
+    setBusy(true);
+    try {
+      await api.addInvoiceLine(invoiceId, {
+        label: label.trim(), quantity, unitPrice,
+        tariffId: tariffId || undefined,
+      });
+      setLabel(''); setAmount(''); setQty('1'); setTariffId('');
+      onAdded();
+    } catch (e) { onError(e); } finally { setBusy(false); }
+  };
+
+  const ready = label.trim() && amount !== '' && !Number.isNaN(Number(amount));
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+                  paddingTop: 6 }}>
+      <select value={tariffId} onChange={(e) => pick(e.target.value)}
+              disabled={disabled || busy || !tariffs} style={{ width: 260 }}>
+        <option value="">Choisir une prestation…</option>
+        {(tariffs || []).map((t) => (
+          <option key={t.id} value={t.id}>{t.label} — {fmtMoney(t.amount)}</option>
+        ))}
+      </select>
+      <input placeholder="ou désignation libre" value={label}
+             onChange={(e) => { setLabel(e.target.value); setTariffId(''); }}
+             disabled={disabled || busy} style={{ flex: 1, minWidth: 170 }} />
+      <input type="number" min="0.01" step="1" value={qty} title="Quantité"
+             onChange={(e) => setQty(e.target.value)}
+             disabled={disabled || busy} style={{ width: 62, textAlign: 'right' }} />
+      <input type="number" min="0" step="50" placeholder="Montant" value={amount}
+             onChange={(e) => setAmount(e.target.value)}
+             onKeyDown={(e) => { if (e.key === 'Enter' && ready) submit(); }}
+             disabled={disabled || busy} style={{ width: 108, textAlign: 'right' }} />
+      <button className="btn primary sm" onClick={submit}
+              disabled={disabled || busy || !ready}>+ Ajouter</button>
+    </div>
   );
 }
 
@@ -320,10 +449,18 @@ function PayModal({ invoice, onClose, onDone }) {
 }
 
 /* ------------------------------- Impayés -------------------------------- */
-function Outstanding({ go }) {
+function Outstanding({ user, go }) {
   go = go || (() => {});
   const [items, setItems] = useState(null);
-  useEffect(() => { api.outstanding().then((d) => setItems(d.items)); }, []);
+  /*
+   * Un impaye se consulte pour etre ENCAISSE : la ligne ouvre donc la
+   * facture, pas la fiche client. Elle renvoyait auparavant vers le dossier,
+   * ce qui obligeait a repasser par l'onglet Factures pour retrouver le
+   * document et le regler.
+   */
+  const [openId, setOpenId] = useState(null);
+  const load = () => { api.outstanding().then((d) => setItems(d.items)); };
+  useEffect(load, []);
   if (!items) return <Spinner />;
 
   const total = items.reduce((s, i) => s + Number(i.balance), 0);
@@ -348,10 +485,10 @@ function Outstanding({ go }) {
             <table>
               <thead><tr><th>Numéro</th><th>Client</th><th>Téléphone</th>
                 <th>Échéance</th><th className="num">Retard</th>
-                <th className="num">Solde</th></tr></thead>
+                <th className="num">Solde</th><th /></tr></thead>
               <tbody>
                 {items.map((i) => (
-                  <tr key={i.id} className="clickable" onClick={() => go('patient', i.patient_id)}>
+                  <tr key={i.id} className="clickable" onClick={() => setOpenId(i.id)}>
                     <td>{i.number}</td>
                     <td>{fmtName(i.last_name, i.first_name)}
                       <div className="muted small">{i.mrn}</div></td>
@@ -363,6 +500,13 @@ function Outstanding({ go }) {
                             {i.days_overdue} j</span>
                         : <span className="muted">—</span>}</td>
                     <td className="num" style={{ fontWeight: 600 }}>{fmtMoney(i.balance)}</td>
+                    <td className="num">
+                      {/* L'acces au dossier reste possible, sans etre le
+                          comportement par defaut de la ligne. */}
+                      <button className="btn ghost sm" title="Ouvrir la fiche client"
+                              onClick={(e) => { e.stopPropagation(); go('patient', i.patient_id); }}>
+                        Fiche</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -370,6 +514,9 @@ function Outstanding({ go }) {
           )}
         </div>
       </div>
+
+      {openId && <InvoiceDetail id={openId} user={user} go={go}
+        onClose={() => setOpenId(null)} onChanged={load} />}
     </>
   );
 }

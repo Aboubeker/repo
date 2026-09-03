@@ -394,3 +394,60 @@ describe('Terminologie affichee et contrats techniques', () => {
     }
   });
 });
+
+/* ====================================================================== */
+/*
+ * Ecran de facturation : impayes et edition des lignes.
+ *
+ * Origine : dans Facturation > Impayes, cliquer une ligne ouvrait la fiche
+ * client. Or on consulte un impaye pour l'ENCAISSER : il fallait ressortir,
+ * passer par l'onglet Factures et y retrouver le document. La ligne ouvre
+ * desormais la facture.
+ */
+describe('Facturation — impayés et édition des lignes', () => {
+  const billing = () => read(join('pages', 'Billing.jsx'));
+
+  test('une ligne d\'impayé ouvre la facture, pas la fiche client', () => {
+    const src = billing();
+    const rows = [...src.matchAll(/<tr key=\{i\.id\} className="clickable" onClick=\{([^}]+)\}/g)];
+    assert.ok(rows.length > 0, 'la ligne du tableau des impayés doit rester cliquable');
+    for (const m of rows) {
+      assert.ok(!/go\('patient'/.test(m[1]),
+        'la ligne ouvrait la fiche client : elle doit ouvrir la facture');
+      assert.match(m[1], /setOpenId/, 'la ligne doit monter le panneau facture');
+    }
+  });
+
+  test('le panneau facture est monté depuis les impayés', () => {
+    const src = billing();
+    const outstanding = src.slice(src.indexOf('function Outstanding'));
+    assert.match(outstanding, /<InvoiceDetail/,
+      'Outstanding doit monter InvoiceDetail');
+    assert.match(outstanding, /user=\{user\}/,
+      'InvoiceDetail a besoin de `user` pour decider de l\'edition');
+  });
+
+  /* L'edition ne doit s'afficher que la ou elle peut aboutir : le serveur
+   * refuse toute modification d'une facture emise (422 INVOICE_NOT_DRAFT). */
+  test('les contrôles d\'édition sont réservés aux brouillons', () => {
+    const src = billing();
+    assert.match(src, /const editable\s*=\s*inv\.status === 'DRAFT'/,
+      'l\'edition doit etre conditionnee au statut DRAFT');
+    assert.match(src, /const editable[^;]*can\(user, 'invoice\.write'\)/,
+      'et a la permission invoice.write');
+    for (const frag of ['<AddLine', 'removeLine(l)']) {
+      const i = src.indexOf(frag);
+      assert.ok(i > 0, `${frag} doit exister`);
+      assert.ok(src.lastIndexOf('editable &&', i) > src.lastIndexOf('</table>', i),
+        `${frag} doit etre rendu sous condition d'editable`);
+    }
+  });
+
+  test('l\'ajout de ligne utilise les routes prévues', () => {
+    const api = read('api.js');
+    for (const m of ['addInvoiceLine', 'updateInvoiceLine', 'deleteInvoiceLine']) {
+      assert.ok(api.includes(`${m}:`), `api.${m} doit exister`);
+    }
+    assert.match(billing(), /api\.addInvoiceLine\(/);
+  });
+});
