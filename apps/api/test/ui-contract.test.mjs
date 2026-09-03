@@ -333,3 +333,64 @@ describe('Lisibilité des boutons', () => {
     }
   });
 });
+
+/* ====================================================================== */
+/*
+ * Frontiere entre le vocabulaire affiche et les contrats techniques.
+ *
+ * Origine : l'habillage « clinique d'esthetique » a renomme « patient » en
+ * « client » dans l'interface. Un remplacement trop large avait aussi
+ * renomme des CLES DE REPONSE du serveur (d.patient -> d.client,
+ * counts.patients -> counts.clients) : la fiche s'affichait vide et les
+ * compteurs a zero, sans la moindre erreur en console. Le libelle est libre,
+ * la cle ne l'est pas.
+ */
+describe('Terminologie affichee et contrats techniques', () => {
+  const sources = () => [
+    ['api.js', read('api.js')],
+    ['App.jsx', read('App.jsx')],
+    ...pages().map((f) => [f, read(join('pages', f))]),
+  ];
+
+  test('les cles de reponse du serveur restent en "patient"', () => {
+    // Le serveur renvoie { patient: ... } et counts.patients.
+    for (const [name, src] of sources()) {
+      assert.ok(!/\bd\.client\b/.test(src),
+        `${name} : la fiche est renvoyee sous la cle "patient", pas "client"`);
+      assert.ok(!/counts\??\.?\.?clients\b/.test(src.replace(/\s/g, '')),
+        `${name} : le compteur serveur s'appelle counts.patients`);
+    }
+  });
+
+  test('les routes et permissions ne sont jamais renommees', () => {
+    for (const [name, src] of sources()) {
+      assert.ok(!/\/api\/clients/.test(src),
+        `${name} : la route serveur est /api/patients`);
+      assert.ok(!/\bclient\.(read|write|delete)\b/.test(src),
+        `${name} : les permissions sont patient.read / patient.write`);
+      assert.ok(!/\bclient_id\b/.test(src),
+        `${name} : la colonne est patient_id`);
+    }
+  });
+
+  test('l\'identifiant de page reste "patient(s)"', () => {
+    const app = read('App.jsx');
+    assert.ok(/id: 'patients'/.test(app), 'identifiant de navigation inchange');
+    assert.ok(/page === 'patient'/.test(app), 'aiguillage de la fiche inchange');
+    assert.ok(/label: 'Clients'/.test(app), 'libelle visible bien en francais metier');
+  });
+
+  test('aucun libelle "patient" ne subsiste dans le texte affiche', () => {
+    for (const [name, src] of sources()) {
+      /* Texte entre balises JSX. On exige que la balise ouvrante precede
+       * immediatement, sinon une flechette `=>` suivie d'un `<` fait passer
+       * du code pour du texte affiche. */
+      for (const m of src.matchAll(/<\/?[A-Za-z][\w.]*[^<>]*>([^<>{}]{3,}?)</g)) {
+        const label = m[1].trim();
+        if (!label || /^[\s\d.,;:%()-]*$/.test(label)) continue;
+        assert.ok(!/\bpatients?\b/i.test(label),
+          `${name} : libelle affiche encore medical -> "${label}"`);
+      }
+    }
+  });
+});

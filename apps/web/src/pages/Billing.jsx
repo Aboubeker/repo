@@ -70,7 +70,7 @@ function Invoices({ user, go }) {
           {!data ? <Spinner /> : data.items.length === 0
             ? <Empty icon="▤" text="Aucune facture pour ce filtre." /> : (
             <table>
-              <thead><tr><th>Numéro</th><th>Date</th><th>Patient</th><th>Praticien</th>
+              <thead><tr><th>Numéro</th><th>Date</th><th>Client</th><th>Praticien</th>
                 <th className="num">Total</th><th className="num">Payé</th>
                 <th className="num">Solde</th><th>Statut</th></tr></thead>
               <tbody>
@@ -160,7 +160,7 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
 
       <div className="grid c2" style={{ marginBottom: 16 }}>
         <div>
-          <div className="muted small">Patient</div>
+          <div className="muted small">Client</div>
           <strong>{fmtName(inv.patient_last_name, inv.patient_first_name)}</strong>
           <div className="muted small">{inv.mrn}</div>
           {inv.address_line1 && <div className="muted small">
@@ -199,8 +199,8 @@ function InvoiceDetail({ id, user, go, onClose, onChanged }) {
               <tr><td colSpan={3} className="num muted">Part organisme (tiers payant)</td>
                 <td className="num">− {fmtMoney(inv.insurance_part)}</td></tr>
               {/* Le reste à charge est le seul chiffre qui intéresse le
-                  patient au guichet : il doit être lisible sans calcul. */}
-              <tr><td colSpan={3} className="num"><strong>Reste à charge patient</strong></td>
+                  client au guichet : il doit être lisible sans calcul. */}
+              <tr><td colSpan={3} className="num"><strong>Reste à charge client</strong></td>
                 <td className="num"><strong>{fmtMoney(inv.patient_part)}</strong></td></tr>
             </>
           )}
@@ -260,7 +260,7 @@ function PayModal({ invoice, onClose, onDone }) {
   const given = Number(amount);
   /*
    * Droit de timbre (art. 100) : dû sur les règlements en espèces. Il
-   * s'ajoute à la somme réclamée au patient, donc la caissière doit le
+   * s'ajoute à la somme réclamée au client, donc la caissière doit le
    * voir AVANT d'annoncer le montant. La base le recalcule à l'insertion
    * du paiement : l'affichage ici n'est qu'une prévisualisation.
    */
@@ -346,7 +346,7 @@ function Outstanding({ go }) {
         <div className="card-body tight">
           {items.length === 0 ? <Empty icon="✓" text="Aucun impayé." /> : (
             <table>
-              <thead><tr><th>Numéro</th><th>Patient</th><th>Téléphone</th>
+              <thead><tr><th>Numéro</th><th>Client</th><th>Téléphone</th>
                 <th>Échéance</th><th className="num">Retard</th>
                 <th className="num">Solde</th></tr></thead>
               <tbody>

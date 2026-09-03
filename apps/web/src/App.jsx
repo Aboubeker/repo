@@ -5,7 +5,7 @@ import { can, useToast, Spinner, useDensity, applyStoredDensity,
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Calendar from './pages/Calendar.jsx';
-import Patients from './pages/Patients.jsx';
+import Clients from './pages/Patients.jsx';
 import PatientFile from './pages/PatientFile.jsx';
 import Queue from './pages/Queue.jsx';
 import Practitioners from './pages/Practitioners.jsx';
@@ -30,7 +30,7 @@ const NAV_DAILY = [
   { id: 'queue',     label: 'File d\'attente', icon: '⏱', perm: 'appointment.read',
     badge: 'waiting' },
   { id: 'calendar',  label: 'Agenda',        icon: '▤', perm: 'appointment.read' },
-  { id: 'patients',  label: 'Patients',      icon: '⚕', perm: 'patient.read' },
+  { id: 'patients',  label: 'Clients',      icon: '⚕', perm: 'patient.read' },
   { id: 'billing',   label: 'Facturation',   icon: '⌸', perm: 'billing.read' },
 ];
 
@@ -76,7 +76,7 @@ export default function App() {
   }, []);
 
   // Compteur de la file d'attente, rafraîchi toutes les 45 s. Permet à la
-  // réception de voir arriver les patients depuis n'importe quel écran, sans
+  // réception de voir arriver les clients depuis n'importe quel écran, sans
   // charger le serveur : une seule requête légère, et seulement si l'onglet
   // est visible.
   useEffect(() => {
@@ -133,7 +133,7 @@ export default function App() {
             aria-current={page === n.id ? 'page' : undefined}>
       <span className="ico" aria-hidden="true">{n.icon}</span>{n.label}
       {n.badge === 'waiting' && waiting > 0 && (
-        <span className="nav-count" title={`${waiting} patient(s) en attente`}>
+        <span className="nav-count" title={`${waiting} client(s) en attente`}>
           {waiting}
         </span>
       )}
@@ -173,7 +173,7 @@ export default function App() {
 
       <div className="main">
         <header className="topbar">
-          <h2>{page === 'patient' ? 'Dossier patient' : current?.label || 'Tableau de bord'}</h2>
+          <h2>{page === 'patient' ? 'Fiche client' : current?.label || 'Tableau de bord'}</h2>
           <div className="spacer" />
           {can(user, 'appointment.write') && (
             <button className="btn primary" onClick={() => setNewAppt({})}>
@@ -203,7 +203,7 @@ export default function App() {
           {page === 'dashboard'     && <Dashboard user={user} go={go} onNewAppt={setNewAppt} />}
           {page === 'calendar'      && <Calendar user={user} go={go} onNewAppt={setNewAppt} />}
           {page === 'queue'         && <Queue user={user} go={go} />}
-          {page === 'patients'      && <Patients user={user} go={go} />}
+          {page === 'patients'      && <Clients user={user} go={go} />}
           {page === 'patient'       && <PatientFile id={patientId} user={user} go={go}
                                           onNewAppt={setNewAppt} />}
           {page === 'practitioners' && <Practitioners user={user} />}

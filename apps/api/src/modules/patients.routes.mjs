@@ -63,6 +63,83 @@ export function registerPatientRoutes(router) {
     };
   }, { permission: 'patient.read' });
 
+  /* ---------------------------- Export CSV -------------------------- */
+  /**
+   * Échappement CSV (RFC 4180).
+   *
+   * Deux pièges traités ici :
+   *  - le séparateur retenu est le POINT-VIRGULE, car Excel en configuration
+   *    française lit un fichier séparé par virgules comme une colonne unique ;
+   *  - une valeur commençant par = + - @ est interprétée comme une FORMULE
+   *    par Excel et LibreOffice. Un nom tel que « =cmd » deviendrait
+   *    exécutable à l'ouverture : on la préfixe d'une apostrophe.
+   */
+  const csvCell = (value) => {
+    if (value === null || value === undefined) return '';
+    let out = String(value);
+    if (/^[=+\-@\t\r]/.test(out)) out = `'${out}`;
+    return /[";\n\r]/.test(out) ? `"${out.replace(/"/g, '""')}"` : out;
+  };
+
+  router.get('/api/patients/export.csv', async (ctx) => {
+    const status = ctx.query.status || 'ACTIVE';
+    const q = (ctx.query.q || '').trim();
+
+    /*
+     * L'export porte sur la sélection ENTIÈRE, pas sur la page affichée.
+     * L'écran est plafonné à 100 lignes : exporter ce tableau aurait produit
+     * un fichier silencieusement tronqué, que personne n'aurait remarqué
+     * avant de s'en servir.
+     */
+    const params = [status];
+    let where = `p.status = $1 AND p.deleted_at IS NULL`;
+    if (q) {
+      params.push(`%${q.toLowerCase()}%`);
+      where += ` AND (immutable_unaccent(lower(p.last_name || ' ' || p.first_name || ' ' ||
+                     p.mrn || ' ' || coalesce(p.phone_mobile,''))) LIKE immutable_unaccent($2)
+                 OR to_char(p.birth_date, 'DD/MM/YYYY') LIKE $2
+                 OR to_char(p.birth_date, 'DDMMYYYY') LIKE $2)`;
+    }
+    const rows = await many(
+      `SELECT p.mrn, p.last_name, p.first_name, p.birth_date, p.sex,
+              p.phone_mobile, p.email, p.city,
+              s.last_visit_at, s.next_visit_at, s.outstanding_balance, s.no_show_count
+         FROM patient p JOIN v_patient_summary s ON s.id = p.id
+        WHERE ${where}
+        ORDER BY p.last_name, p.first_name`, params);
+
+    const d = (v) => (v ? new Date(v).toLocaleDateString('fr-FR') : '');
+    const header = ['Dossier', 'Nom', 'Prénom', 'Naissance', 'Sexe', 'Téléphone',
+                    'E-mail', 'Ville', 'Dernière visite', 'Prochain rendez-vous',
+                    'Solde dû (DA)', 'Absences'];
+    const lines = [header.join(';')];
+    for (const r of rows) {
+      lines.push([r.mrn, r.last_name, r.first_name, d(r.birth_date), r.sex,
+                  r.phone_mobile, r.email, r.city, d(r.last_visit_at), d(r.next_visit_at),
+                  Number(r.outstanding_balance || 0).toFixed(2).replace('.', ','),
+                  r.no_show_count].map(csvCell).join(';'));
+    }
+
+    /*
+     * Le BOM UTF-8 est indispensable : sans lui, Excel sous Windows lit le
+     * fichier en ANSI et affiche « BENALI Zoubida » avec des accents cassés.
+     * CRLF pour la même raison de compatibilité.
+     */
+    const csv = '\uFEFF' + lines.join('\r\n') + '\r\n';
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    await writeAudit(ctx, { action: 'EXPORT', entity: 'patient',
+      summary: `Export CSV de ${rows.length} fiche(s)` });
+
+    ctx.res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="clients-${stamp}.csv"`,
+      'Cache-Control': 'no-store',
+    });
+    ctx.res.end(csv);
+    return undefined;
+  }, { permission: 'patient.read' });
+
   /* --------------------------- Détail ------------------------------ */
   router.get('/api/patients/:id', async (ctx) => {
     const p = await one(`SELECT * FROM v_patient_summary WHERE id = $1`, [ctx.params.id]);

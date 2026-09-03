@@ -196,7 +196,7 @@ function Detail({ id, user, onBack }) {
             <div className="label">À venir</div>
             <div className="value">{d.stats.upcoming}</div></div>
           <div className="stat accent-red">
-            <div className="label">Absences patients</div>
+            <div className="label">Absences clients</div>
             <div className="value">{d.stats.no_show}</div>
             <div className="hint">{d.stats.completed
               ? `${Math.round(d.stats.no_show / (d.stats.completed + d.stats.no_show) * 100)}%`
@@ -300,10 +300,10 @@ function AddAbsence({ practitionerId, onClose, onDone }) {
       <div className="alert warning">
         <span>⚠</span>
         <div>L'absence est enregistrée. Ces {impacted.length} rendez-vous doivent être
-          replanifiés ou annulés, et les patients prévenus.</div>
+          replanifiés ou annulés, et les clients prévenus.</div>
       </div>
       <table>
-        <thead><tr><th>Référence</th><th>Date</th><th>Patient</th><th>Téléphone</th></tr></thead>
+        <thead><tr><th>Référence</th><th>Date</th><th>Client</th><th>Téléphone</th></tr></thead>
         <tbody>
           {impacted.map((a) => (
             <tr key={a.id}>

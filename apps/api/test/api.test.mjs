@@ -196,6 +196,72 @@ describe('Patients', () => {
     assert.ok((await r.json()).items.length >= 1);
   });
 
+  /* --- Export CSV -------------------------------------------------------
+   * L'export doit couvrir TOUTES les fiches, pas seulement la page affichee
+   * (l'ecran en montre 100, l'API en plafonne 200) : un export tronque en
+   * silence produirait des decomptes faux sans que personne le remarque.
+   */
+  test('l\'export CSV renvoie un fichier telechargeable bien forme', async () => {
+    const r = await api('/api/patients/export.csv');
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/csv/);
+    assert.match(r.headers.get('content-disposition'),
+      /attachment; filename="clients-\d{4}-\d{2}-\d{2}\.csv"/);
+    /* text() retire le BOM d'apres la spec fetch : on inspecte les octets. */
+    const raw = Buffer.from(await r.clone().arrayBuffer());
+    assert.deepEqual([...raw.subarray(0, 3)], [0xEF, 0xBB, 0xBF],
+      'BOM UTF-8 requis pour les accents sous Excel');
+    const body = await r.text();
+    assert.ok(body.includes('\r\n'), 'fins de ligne CRLF');
+    const lines = body.replace(/^\uFEFF/, '').trim().split('\r\n');
+    assert.match(lines[0], /^Dossier;Nom;/, 'separateur point-virgule (locale FR)');
+    const { total } = await (await api('/api/patients?limit=1')).json();
+    assert.equal(lines.length - 1, total, 'export complet, jamais tronque a la page');
+  });
+
+  test('l\'export CSV neutralise les formules et echappe les separateurs', async () => {
+    const r = await api('/api/patients', { method: 'POST', body: {
+      lastName: 'EXPORT;"TEST"', firstName: '=1+1', birthDate: '1979-03-04', sex: 'M' } });
+    const p = await r.json();
+    const body = await (await api('/api/patients/export.csv?q=EXPORT')).text();
+    const line = body.split('\r\n').find((l) => l.includes(p.mrn));
+    assert.ok(line.includes('"EXPORT;""TEST"""'), 'guillemets doubles, champ entre guillemets');
+    assert.ok(line.includes("'=1+1"), 'formule desamorcee par une apostrophe');
+    /* Suppression physique : la route DELETE ne fait qu'archiver, la fiche
+     * resterait exportable et polluerait les executions suivantes. */
+    await query('DELETE FROM patient WHERE id = $1', [p.id]);
+  });
+
+  /* Le seed ne contient qu'une vingtaine de fiches : un LIMIT 100 glisse dans
+   * la requete d'export resterait invisible. On depasse donc volontairement le
+   * plafond de 200 de l'API de liste pour prouver que l'export n'en a aucun. */
+  test('l\'export CSV depasse le plafond de pagination de l\'API', async () => {
+    await query(`INSERT INTO patient (mrn, last_name, first_name, birth_date, sex, status)
+                 SELECT 'P-TEST-' || lpad(g::text, 6, '0'), 'VOLUME', 'N' || g,
+                        date '1990-01-01', 'F', 'ACTIVE'
+                 FROM generate_series(1, 250) g`);
+    try {
+      const { total } = await (await api('/api/patients?limit=1')).json();
+      assert.ok(total > 200, 'jeu de donnees suffisant pour depasser le plafond');
+      const body = await (await api('/api/patients/export.csv')).text();
+      const lines = body.replace(/^\uFEFF/, '').trim().split('\r\n');
+      assert.equal(lines.length - 1, total, 'aucun LIMIT ne doit brider l\'export');
+    } finally {
+      await query(`DELETE FROM patient WHERE mrn LIKE 'P-TEST-%'`);
+    }
+  });
+
+  test('l\'export CSV applique le filtre de statut', async () => {
+    const r = await api('/api/patients/export.csv?status=ARCHIVED');
+    const lines = (await r.text()).replace(/^\uFEFF/, '').trim().split('\r\n');
+    const { total } = await (await api('/api/patients?status=ARCHIVED&limit=1')).json();
+    assert.equal(lines.length - 1, total);
+  });
+
+  test('l\'export CSV est refuse sans jeton', async () => {
+    assert.equal((await api('/api/patients/export.csv', { as: null })).status, 401);
+  });
+
   test('la fiche remonte les allergies critiques', async () => {
     const p = await one(`SELECT patient_id FROM medical_history_entry
                          WHERE severity = 'CRITICAL' LIMIT 1`);

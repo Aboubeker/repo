@@ -66,7 +66,7 @@ export default function InvoicePrint({ invoice, lines, payments, branding }) {
   const isCredit = (inv.number || '').startsWith('AV-');
   const stamp = Number(inv.stamp_duty) || 0;
 
-  // Le patient doit lire ce qu'il paie réellement : la part à sa charge,
+  // Le client doit lire ce qu'il paie réellement : la part à sa charge,
   // pas le montant total dont l'assurance règle une partie.
   const insurance = Number(inv.insurance_part) || 0;
   const patientPart = insurance > 0
@@ -97,7 +97,7 @@ export default function InvoicePrint({ invoice, lines, payments, branding }) {
 
       <section className="pd-parties">
         <div>
-          <div className="pd-label">Patient</div>
+          <div className="pd-label">Client</div>
           <strong>{fmtName(inv.patient_last_name, inv.patient_first_name)}</strong>
           <div className="pd-sub">
             Dossier {inv.mrn}
@@ -148,7 +148,7 @@ export default function InvoicePrint({ invoice, lines, payments, branding }) {
               <>
                 <tr><td>Part organisme (tiers payant)</td>
                   <td className="num">− {fmtMoney(insurance)}</td></tr>
-                <tr className="pd-strong"><td>Reste à charge patient</td>
+                <tr className="pd-strong"><td>Reste à charge client</td>
                   <td className="num">{fmtMoney(patientPart)}</td></tr>
               </>
             )}

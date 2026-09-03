@@ -18,7 +18,7 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
   const [error, setError] = useState(null);
   const [addHistory, setAddHistory] = useState(false);
 
-  const load = () => api.patient(id).then(setD).catch(setError);
+  const load = () => api.client(id).then(setD).catch(setError);
   useEffect(() => { setD(null); load(); }, [id]);
 
   if (error) return <ErrorAlert error={error} />;
@@ -33,7 +33,7 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
     <>
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
-          <button className="btn ghost sm" onClick={() => go('patients')}>◂ Patients</button>
+          <button className="btn ghost sm" onClick={() => go('patients')}>◂ Clients</button>
           <div style={{ flex: 1 }}>
             <h3 style={{ fontSize: 17 }}>{fmtName(p.last_name, p.first_name)}</h3>
             <div className="muted small">
@@ -125,7 +125,7 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
             <div className="card-head"><h3>Synthèse</h3></div>
             <div className="card-body">
               <dl className="dl">
-                <dt>Patient depuis</dt><dd>{fmtDate(p.created_at)}</dd>
+                <dt>Client depuis</dt><dd>{fmtDate(p.created_at)}</dd>
                 <dt>Consultations</dt><dd>{d.appointments.filter((a) => a.status === 'COMPLETED').length}</dd>
                 <dt>Dernière visite</dt><dd>{p.last_visit_at ? fmtDate(p.last_visit_at) : '—'}</dd>
                 <dt>Prochain RDV</dt><dd>{p.next_visit_at
@@ -260,7 +260,7 @@ export default function PatientFile({ id, user, go, onNewAppt }) {
             <div className="alert info" style={{ marginTop: 14 }}>
               <span>ⓘ</span>
               <div>Sans consentement, aucun rappel automatique n'est envoyé :
-                le patient apparaît dans la liste d'appels de l'accueil.</div>
+                le client apparaît dans la liste d'appels de l'accueil.</div>
             </div>
           </div>
         </div>

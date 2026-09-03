@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { Spinner, Empty, Modal, Field, ErrorAlert, ConfirmDialog, fmtName, fmtMoney,
          age, can, useToast } from '../lib.jsx';
 
-export default function Patients({ user, go }) {
+export default function Clients({ user, go }) {
   // Repli sur les rappels de navigation : cette page peut être montée
   // hors de App.jsx. Un appel sur une prop absente ferait tomber tout
   // l'écran en « is not a function ».
@@ -17,10 +17,25 @@ export default function Patients({ user, go }) {
   const [status, setStatus] = useState('ACTIVE');
   const toast = useToast();
   const writable = can(user, 'patient.write');
+  const [exporting, setExporting] = useState(false);
+
+  /*
+   * L'export porte sur la recherche et le filtre en cours, mais sur la
+   * TOTALITÉ des fiches correspondantes : l'écran n'en affiche que 100,
+   * exporter le tableau visible produirait un fichier tronqué sans le dire.
+   */
+  const exportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const name = await api.exportPatientsCsv({ q: q || undefined, status });
+      toast.success(`Export téléchargé : ${name}`);
+    } catch (err) { setError(err); } finally { setExporting(false); }
+  };
 
   const load = (query, st) => {
     setData(null);
-    api.patients({ q: query, status: st, limit: 100 }).then(setData).catch(setError);
+    api.clients({ q: query, status: st, limit: 100 }).then(setData).catch(setError);
   };
 
   useEffect(function reloadOnSearch() {
@@ -59,18 +74,21 @@ export default function Patients({ user, go }) {
             <option value="ARCHIVED">Fiches archivées</option>
           </select>
           <div className="spacer" />
-          {data && <span className="muted small">{data.total} patient(s)</span>}
+          {data && <span className="muted small">{data.total} client(s)</span>}
+          <button className="btn sm" onClick={exportCsv} disabled={exporting || !data}
+                  title="Télécharger la liste complète au format CSV">
+            {exporting ? 'Export…' : '⭳ Exporter (CSV)'}</button>
           {can(user, 'patient.write') && (
             <button className="btn primary" onClick={() => setCreating(true)}>
-              + Nouveau patient</button>
+              + Nouveau client</button>
           )}
         </div>
 
         <div className="card-body tight">
           <ErrorAlert error={error} />
           {!data ? <Spinner /> : data.items.length === 0 ? (
-            <Empty icon="⚕" text={q ? 'Aucun patient ne correspond à cette recherche.'
-                                    : 'Aucun patient enregistré.'} />
+            <Empty icon="⚕" text={q ? 'Aucun client ne correspond à cette recherche.'
+                                    : 'Aucun client enregistré.'} />
           ) : (
             <table>
               <thead>
@@ -121,7 +139,7 @@ export default function Patients({ user, go }) {
                       )}
                       {writable && status === 'ARCHIVED' && (
                         <button className="btn sm" onClick={() => restore(p)}
-                                title="Remettre la fiche parmi les patients actifs">
+                                title="Remettre la fiche parmi les clients actifs">
                           Réactiver</button>
                       )}
                     </td>
@@ -136,12 +154,12 @@ export default function Patients({ user, go }) {
       {creating && <PatientForm onClose={() => setCreating(false)}
         onSaved={(p) => { setCreating(false); go('patient', p.id); }} />}
 
-      {editing && <PatientForm patient={editing} onClose={() => setEditing(null)}
+      {editing && <PatientForm client={editing} onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); load(q, status); }} />}
 
       {archiving && (
         <ConfirmDialog
-          title="Archiver cette fiche patient ?"
+          title="Archiver cette fiche client ?"
           danger confirmLabel="Archiver la fiche"
           onConfirm={archive} onClose={() => setArchiving(null)}
           message={`La fiche de ${fmtName(archiving.last_name, archiving.first_name)} (${archiving.mrn}) quittera les listes actives.`}>
@@ -158,14 +176,14 @@ export default function Patients({ user, go }) {
 }
 
 /**
- * Formulaire de fiche patient, en création comme en modification.
+ * Formulaire de fiche client, en création comme en modification.
  *
  * Un seul composant pour les deux usages : les champs, les règles de saisie et
  * les messages d'erreur sont par construction identiques, alors que deux
  * formulaires jumeaux finiraient par diverger au fil des évolutions.
  */
-function PatientForm({ patient, onClose, onSaved }) {
-  const editing = Boolean(patient);
+function PatientForm({ client, onClose, onSaved }) {
+  const editing = Boolean(client);
   const [f, setF] = useState({
     lastName: '', firstName: '', birthDate: '', sex: 'U', phoneMobile: '',
     email: '', addressLine1: '', postalCode: '', city: '', bloodType: '',
@@ -181,7 +199,7 @@ function PatientForm({ patient, onClose, onSaved }) {
   useEffect(function loadFullRecord() {
     if (!editing) return undefined;
     let cancelled = false;
-    api.patient(patient.id).then((d) => {
+    api.client(client.id).then((d) => {
       if (cancelled) return;
       const p = d.patient;
       setF({
@@ -194,7 +212,7 @@ function PatientForm({ patient, onClose, onSaved }) {
       setLoading(false);
     }).catch((err) => { if (!cancelled) { setError(err); setLoading(false); } });
     return () => { cancelled = true; };
-  }, [editing, patient && patient.id]);
+  }, [editing, client && client.id]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -202,15 +220,15 @@ function PatientForm({ patient, onClose, onSaved }) {
     setBusy(true); setError(null);
     try {
       const saved = editing
-        ? await api.updatePatient(patient.id, f)
+        ? await api.updatePatient(client.id, f)
         : await api.createPatient(f);
-      toast.success(editing ? `Fiche ${saved.mrn} mise à jour.` : `Patient ${saved.mrn} créé.`);
+      toast.success(editing ? `Fiche ${saved.mrn} mise à jour.` : `Client ${saved.mrn} créé.`);
       onSaved(saved);
     } catch (err) { setError(err); } finally { setBusy(false); }
   };
 
   return (
-    <Modal title={editing ? `Modifier la fiche ${patient.mrn}` : 'Nouveau patient'}
+    <Modal title={editing ? `Modifier la fiche ${client.mrn}` : 'Nouveau client'}
            onClose={onClose} wide footer={
       <>
         <button className="btn" onClick={onClose}>Annuler</button>
@@ -225,7 +243,7 @@ function PatientForm({ patient, onClose, onSaved }) {
           {error?.code === 'DUPLICATE_PATIENT' && (
             <div className="alert warning">
               <span>⚠</span>
-              <div>Un patient identique existe déjà ({error.details?.mrn}).
+              <div>Un client identique existe déjà ({error.details?.mrn}).
                 Vérifiez avant de créer un doublon.</div>
             </div>
           )}

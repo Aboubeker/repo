@@ -104,7 +104,6 @@ export default function Calendar({ user, go, onNewAppt }) {
             <button className={`btn sm ${view === 'week' ? 'primary' : ''}`}
                     onClick={() => setView('week')}>Semaine</button>
           </div>
-          <button className="btn sm" onClick={() => window.print()}>🖨 Imprimer</button>
         </div>
 
         <div style={{ padding: '9px 16px', display: 'flex', gap: 8, flexWrap: 'wrap',
@@ -276,7 +275,7 @@ export function AppointmentDetail({ id, user, go, onClose, onChanged }) {
   const NEXT = {
     SCHEDULED: [['CONFIRMED', 'Confirmer'], ['CHECKED_IN', 'Enregistrer l\'arrivée']],
     CONFIRMED: [['CHECKED_IN', 'Enregistrer l\'arrivée']],
-    CHECKED_IN: [['IN_PROGRESS', 'Appeler le patient']],
+    CHECKED_IN: [['IN_PROGRESS', 'Appeler le client']],
     IN_PROGRESS: [['COMPLETED', 'Terminer la consultation']],
   }[a.status] || [];
 
@@ -292,8 +291,7 @@ export function AppointmentDetail({ id, user, go, onClose, onChanged }) {
           <button className="btn danger" disabled={busy}
                   onClick={() => setCancelling(true)}>Annuler</button>
         )}
-        <button className="btn" onClick={() => go('patient', a.patient_id)}>Dossier patient</button>
-        <button className="btn" onClick={() => window.print()}>🖨</button>
+        <button className="btn" onClick={() => go('patient', a.patient_id)}>Fiche client</button>
       </>
     }>
       <ErrorAlert error={error} />
@@ -368,10 +366,10 @@ export function AppointmentDetail({ id, user, go, onClose, onChanged }) {
           <Field label="Motif de l'annulation (obligatoire)">
             <select value={reason} onChange={(e) => setReason(e.target.value)}>
               <option value="">— Choisir —</option>
-              <option>Annulé par le patient</option>
+              <option>Annulé par le client</option>
               <option>Annulé par le praticien</option>
-              <option>Patient injoignable</option>
-              <option>Report à la demande du patient</option>
+              <option>Client injoignable</option>
+              <option>Report à la demande du client</option>
               <option>Erreur de saisie</option>
             </select>
           </Field>

@@ -80,9 +80,31 @@ export const api = {
   changePassword: (currentPassword, newPassword) =>
     request('/api/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } }),
 
-  // Patients
-  patients: (p) => request(`/api/patients${qs(p)}`),
-  patient: (id) => request(`/api/patients/${id}`),
+  // Clients
+  clients: (p) => request(`/api/patients${qs(p)}`),
+
+  /*
+   * Export CSV.
+   *
+   * Le téléchargement passe par fetch plutôt que par un lien direct : le
+   * jeton d'accès voyage dans l'en-tête Authorization, qu'un simple
+   * <a href> ne transporte pas — le serveur répondrait 401 et le
+   * navigateur enregistrerait la page d'erreur sous le nom du fichier.
+   */
+  exportPatientsCsv: async (p) => {
+    const res = await request(`/api/patients/export.csv${qs(p)}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const name = (res.headers.get('content-disposition') || '')
+      .match(/filename="?([^"]+)"?/)?.[1] || 'clients.csv';
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    // Sans révocation, le blob reste en mémoire jusqu'au rechargement.
+    URL.revokeObjectURL(url);
+    return name;
+  },
+  client: (id) => request(`/api/patients/${id}`),
   createPatient: (b) => request('/api/patients', { method: 'POST', body: b }),
   updatePatient: (id, b) => request(`/api/patients/${id}`, { method: 'PATCH', body: b }),
   addHistory: (id, b) => request(`/api/patients/${id}/history`, { method: 'POST', body: b }),
@@ -166,8 +188,8 @@ export const api = {
   health: () => request('/api/health'),
   branding: () => request('/api/branding'),
 
-  // --- Gouvernance : archivage de patients, suppression de comptes -------
-  // Côté serveur la fiche patient n'est jamais détruite : elle passe en
+  // --- Gouvernance : archivage de clients, suppression de comptes -------
+  // Côté serveur la fiche client n'est jamais détruite : elle passe en
   // statut ARCHIVED, ce qui préserve l'historique de soins et la facturation.
   archivePatient: (id) => request(`/api/patients/${id}`, { method: 'DELETE' }),
   restorePatient: (id) =>

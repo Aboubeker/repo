@@ -5,10 +5,10 @@ import {
   useToast, Empty,
 } from '../lib.jsx';
 
-/** Assistant de prise de rendez-vous en 3 étapes : patient → créneau → confirmation. */
+/** Assistant de prise de rendez-vous en 3 étapes : client → créneau → confirmation. */
 export default function NewAppointment({ initial = {}, onClose, onCreated }) {
   const [step, setStep] = useState(initial.patientId ? 2 : 1);
-  const [patient, setPatient] = useState(null);
+  const [client, setPatient] = useState(null);
   const [refs, setRefs] = useState(null);
   const [error, setError] = useState(null);
 
@@ -19,7 +19,7 @@ export default function NewAppointment({ initial = {}, onClose, onCreated }) {
   }, []);
 
   useEffect(() => {
-    if (initial.patientId) api.patient(initial.patientId).then((d) => setPatient(d.patient));
+    if (initial.patientId) api.client(initial.patientId).then((d) => setPatient(d.patient));
   }, [initial.patientId]);
 
   return (
@@ -27,9 +27,9 @@ export default function NewAppointment({ initial = {}, onClose, onCreated }) {
       <Steps current={step} />
       <ErrorAlert error={error} />
       {!refs ? <Spinner /> : step === 1 ? (
-        <StepPatient onPick={(p) => { setPatient(p); setStep(2); }} />
+        <StepClient onPick={(p) => { setPatient(p); setStep(2); }} />
       ) : (
-        <StepSlot patient={patient} refs={refs} initial={initial}
+        <StepSlot client={client} refs={refs} initial={initial}
                   onBack={() => setStep(1)} onCreated={onCreated} />
       )}
     </Modal>
@@ -38,7 +38,7 @@ export default function NewAppointment({ initial = {}, onClose, onCreated }) {
 
 const Steps = ({ current }) => (
   <div style={{ display: 'flex', gap: 8, marginBottom: 18, fontSize: 12.5 }}>
-    {['Patient', 'Créneau et confirmation'].map((s, i) => (
+    {['Client', 'Créneau et confirmation'].map((s, i) => (
       <div key={s} style={{
         flex: 1, padding: '7px 12px', borderRadius: 6, textAlign: 'center',
         background: current === i + 1 ? 'var(--primary)' : 'var(--surface-2)',
@@ -50,7 +50,7 @@ const Steps = ({ current }) => (
 );
 
 /* ------------------------------- Étape 1 -------------------------------- */
-function StepPatient({ onPick }) {
+function StepClient({ onPick }) {
   const [q, setQ] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -60,7 +60,7 @@ function StepPatient({ onPick }) {
     if (q.trim().length < 2) { setItems([]); return; }
     setLoading(true);
     const t = setTimeout(() => {
-      api.patients({ q, limit: 12 })
+      api.clients({ q, limit: 12 })
         .then((d) => setItems(d.items))
         .catch(() => setItems([]))
         .finally(() => setLoading(false));
@@ -72,7 +72,7 @@ function StepPatient({ onPick }) {
 
   return (
     <>
-      <Field label="Rechercher un patient"
+      <Field label="Rechercher un client"
              help="Nom, prénom, identifiant, téléphone ou date de naissance (JJ/MM/AAAA)">
         <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus
                placeholder="Ex. Dupont, P-2026-000001, 12/03/1979…" />
@@ -83,7 +83,7 @@ function StepPatient({ onPick }) {
       {items.length > 0 && (
         <div className="card" style={{ marginBottom: 12 }}>
           <table>
-            <thead><tr><th>Patient</th><th>Naissance</th><th>Téléphone</th><th></th></tr></thead>
+            <thead><tr><th>Client</th><th>Naissance</th><th>Téléphone</th><th></th></tr></thead>
             <tbody>
               {items.map((p) => (
                 <tr key={p.id} className="clickable" onClick={() => onPick(p)}>
@@ -104,12 +104,12 @@ function StepPatient({ onPick }) {
       )}
 
       {q.trim().length >= 2 && !loading && items.length === 0 && (
-        <Empty icon="🔍" text="Aucun patient trouvé."
+        <Empty icon="🔍" text="Aucun client trouvé."
                action={<button className="btn primary" onClick={() => setCreating(true)}>
-                 Créer un nouveau patient</button>} />
+                 Créer un nouveau client</button>} />
       )}
 
-      <button className="btn" onClick={() => setCreating(true)}>+ Nouveau patient</button>
+      <button className="btn" onClick={() => setCreating(true)}>+ Nouveau client</button>
     </>
   );
 }
@@ -159,7 +159,7 @@ function QuickCreate({ onCreated, onCancel }) {
 }
 
 /* ------------------------------- Étape 2 -------------------------------- */
-function StepSlot({ patient, refs, initial, onBack, onCreated }) {
+function StepSlot({ client, refs, initial, onBack, onCreated }) {
   const [typeId, setTypeId] = useState(refs.types[0]?.id || '');
   const [practId, setPractId] = useState('');
   const [from, setFrom] = useState(toISODate(new Date()));
@@ -207,7 +207,7 @@ function StepSlot({ patient, refs, initial, onBack, onCreated }) {
     setBusy(true); setError(null);
     try {
       const a = await api.createAppointment({
-        patientId: patient.id, practitionerId: practId, appointmentTypeId: typeId,
+        patientId: client.id, practitionerId: practId, appointmentTypeId: typeId,
         startAt: selected.start, reason,
       });
       onCreated(a);
@@ -228,12 +228,12 @@ function StepSlot({ patient, refs, initial, onBack, onCreated }) {
       <div className="card" style={{ marginBottom: 14, background: 'var(--surface-2)' }}>
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <strong>{fmtName(patient?.last_name, patient?.first_name)}</strong>
+            <strong>{fmtName(client?.last_name, client?.first_name)}</strong>
             <div className="muted small">
-              {patient?.mrn} · {age(patient?.birth_date)} ans · ☎ {patient?.phone_mobile || '—'}
+              {client?.mrn} · {age(client?.birth_date)} ans · ☎ {client?.phone_mobile || '—'}
             </div>
           </div>
-          <button className="btn sm" onClick={onBack}>Changer de patient</button>
+          <button className="btn sm" onClick={onBack}>Changer de client</button>
         </div>
       </div>
 
@@ -241,7 +241,7 @@ function StepSlot({ patient, refs, initial, onBack, onCreated }) {
 
       <div className="row">
         {/* Durée ET tarif : l'accueil doit pouvoir annoncer le prix au
-            patient sans quitter l'écran de prise de rendez-vous. */}
+            client sans quitter l'écran de prise de rendez-vous. */}
         <Field label="Type de rendez-vous"
                help={type?.tariff_amount != null
                  ? `Sera facturé ${fmtMoney(type.tariff_amount)}.`

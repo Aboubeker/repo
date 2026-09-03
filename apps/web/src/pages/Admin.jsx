@@ -252,7 +252,7 @@ function UserForm({ target, roles, onClose, onDone }) {
 /* -------------------------- Rôles et permissions ------------------------- */
 
 /**
- * Regroupe les permissions par préfixe (« patient.read » → famille « patient »).
+ * Regroupe les permissions par préfixe (« patient.read » → famille « client »).
  *
  * La matrice compte plusieurs dizaines d'entrées ; présentée à plat, elle est
  * illisible et l'on coche de travers. Le regroupement suit le nommage déjà
@@ -270,7 +270,7 @@ function groupPermissions(permissions) {
 }
 
 const FAMILY_LABELS = {
-  patient: 'Patients', appointment: 'Rendez-vous', practitioner: 'Praticiens',
+  client: 'Clients', appointment: 'Rendez-vous', practitioner: 'Praticiens',
   encounter: 'Consultations', resource: 'Ressources', billing: 'Facturation',
   invoice: 'Factures', payment: 'Encaissements', report: 'Rapports',
   audit: 'Audit', admin: 'Administration', user: 'Comptes',
@@ -719,11 +719,11 @@ function ThemePreview({ theme }) {
           : <strong style={{ fontSize: '1em' }}>CliniRDV</strong>}
         <span style={{ opacity: .75 }}>Agenda</span>
         <span style={{ background: theme.primaryColor, borderRadius: radius / 2,
-                       padding: '3px 7px' }}>Patients</span>
+                       padding: '3px 7px' }}>Clients</span>
         <span style={{ opacity: .75 }}>Facturation</span>
       </div>
       <div style={{ padding: 14, flex: 1, background: '#fff', display: 'grid', gap: 9 }}>
-        <strong style={{ fontSize: '1.1em' }}>Fiche patient</strong>
+        <strong style={{ fontSize: '1.1em' }}>Fiche client</strong>
         <div style={{ display: 'flex', gap: 6 }}>
           <span style={{ background: theme.primaryColor, color: '#fff', borderRadius: radius / 2,
                          padding: `${theme.density === 'compact' ? 4 : 7}px 12px` }}>
@@ -839,7 +839,7 @@ function Catalogue() {
                       {!t.buffer_before_minutes && !t.buffer_after_minutes && '—'}
                     </td>
                     {/* Ce que le créneau occupe réellement dans l'agenda :
-                        c'est cette valeur qui détermine le nombre de patients
+                        c'est cette valeur qui détermine le nombre de clients
                         possibles dans une journée, pas la durée seule. */}
                     <td className="num muted">
                       {t.default_duration_minutes + t.buffer_before_minutes
@@ -1027,7 +1027,7 @@ function AppointmentTypeForm({ row, specialties, onClose, onDone }) {
       <h4 style={{ fontSize: 13, margin: '14px 0 8px' }}>Durée</h4>
       <div className="row">
         <Field label="Durée de l'acte *" error={error?.details?.defaultDurationMinutes}
-               help="Temps passé avec le patient, de 5 à 480 minutes.">
+               help="Temps passé avec le client, de 5 à 480 minutes.">
           <input type="number" min="5" max="480" step="5"
                  value={f.defaultDurationMinutes} onChange={num('defaultDurationMinutes')} /></Field>
         <Field label="Battement avant"
@@ -1043,7 +1043,7 @@ function AppointmentTypeForm({ row, specialties, onClose, onDone }) {
         <span>⏱</span>
         <div>
           Ce rendez-vous occupera <strong>{total} minutes</strong> dans l'agenda
-          du praticien, soit environ <strong>{Math.floor(480 / (total || 1))}</strong> patients
+          du praticien, soit environ <strong>{Math.floor(480 / (total || 1))}</strong> clients
           sur une journée de 8 heures. Les battements bloquent le créneau sans
           apparaître comme temps de consultation.
         </div>
@@ -1088,7 +1088,7 @@ function AppointmentTypeForm({ row, specialties, onClose, onDone }) {
             Une salle est nécessaire
           </label></Field>
       </div>
-      <Field label="Consignes de préparation au patient"
+      <Field label="Consignes de préparation au client"
              help="Affichées lors de la prise de rendez-vous. Ex. : venir à jeun.">
         <input value={f.preparationInstructions}
                onChange={(e) => set('preparationInstructions', e.target.value)} /></Field>
@@ -1097,7 +1097,7 @@ function AppointmentTypeForm({ row, specialties, onClose, onDone }) {
         <div className="alert warning" style={{ marginTop: 10 }}>
           <span>⚠</span>
           <div>La nouvelle durée s'appliquera aux <strong>prochains</strong> rendez-vous.
-            Ceux déjà planifiés gardent l'horaire annoncé au patient.</div>
+            Ceux déjà planifiés gardent l'horaire annoncé au client.</div>
         </div>
       )}
     </Modal>
@@ -1153,7 +1153,7 @@ function TariffForm({ row, specialties, onClose, onDone }) {
                  autoFocus={editing} /></Field>
       </div>
       <Field label="Libellé *" error={error?.details?.label}
-             help="Texte imprimé sur la facture du patient.">
+             help="Texte imprimé sur la facture du client.">
         <input value={f.label} onChange={(e) => set('label', e.target.value)}
                placeholder="Consultation cardiologie" /></Field>
       <div className="row">
@@ -1590,7 +1590,7 @@ function System() {
           <dl className="dl">
             <dt>Version</dt><dd className="small">{(d.database.version || '').split(',')[0]}</dd>
             <dt>Taille</dt><dd>{d.database.size}</dd>
-            <dt>Patients</dt><dd>{d.counts.patients}</dd>
+            <dt>Clients</dt><dd>{d.counts.patients}</dd>
             <dt>Praticiens</dt><dd>{d.counts.practitioners}</dd>
             <dt>Rendez-vous</dt><dd>{d.counts.appointments}</dd>
             <dt>Factures</dt><dd>{d.counts.invoices}</dd>
@@ -1784,7 +1784,7 @@ function Overview({ go }) {
       </div>
 
       <div className="grid c4">
-        <Stat label="Patients" value={sys.counts?.patients ?? 0} accent="teal" />
+        <Stat label="Clients" value={sys.counts?.patients ?? 0} accent="teal" />
         <Stat label="Praticiens" value={sys.counts?.practitioners ?? 0} accent="purple" />
         <Stat label="Rendez-vous" value={sys.counts?.appointments ?? 0} accent="green" />
         <Stat label="Factures" value={sys.counts?.invoices ?? 0} accent="orange" />

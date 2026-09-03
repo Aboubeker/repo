@@ -81,7 +81,7 @@ export default function Dashboard({ user, go, onNewAppt }) {
             ) : (
               <table>
                 <thead>
-                  <tr><th style={{ width: 60 }}>Heure</th><th>Patient</th>
+                  <tr><th style={{ width: 60 }}>Heure</th><th>Client</th>
                       <th>Praticien</th><th>Motif</th><th>Statut</th></tr>
                 </thead>
                 <tbody>
@@ -109,7 +109,7 @@ export default function Dashboard({ user, go, onNewAppt }) {
             <div className="card-head"><h3>À traiter</h3></div>
             <div className="card-body" style={{ display: 'grid', gap: 9, fontSize: 13 }}>
               <TaskRow icon="⏱" ok={waiting.items.length === 0}
-                       text={`${waiting.items.length} patient(s) en liste d'attente`}
+                       text={`${waiting.items.length} client(s) en liste d'attente`}
                        onClick={() => go('calendar')} />
               <TaskRow icon="▤" ok={unpaidToday.length === 0}
                        text={`${unpaidToday.length} encaissement(s) en attente`}

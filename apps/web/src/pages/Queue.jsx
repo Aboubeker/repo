@@ -46,7 +46,7 @@ export default function Queue({ user, go }) {
     setBusyId(a.id);
     try {
       await api.setStatus(a.id, { status: 'NO_SHOW', version: a.version });
-      toast.info('Patient marqué absent.');
+      toast.info('Client marqué absent.');
       load();
     } catch (e) { toast.error(e.message); } finally { setBusyId(null); }
   };
@@ -68,7 +68,6 @@ export default function Queue({ user, go }) {
           <span className="muted small">
             {d.absent.length} absent(s) · {d.cancelled.length} annulé(s)
           </span>
-          <button className="btn sm" onClick={() => window.print()}>🖨 Liste</button>
         </div>
       </div>
 
@@ -142,7 +141,7 @@ export default function Queue({ user, go }) {
           <div className="card-head"><h3>Absences et annulations</h3></div>
           <div className="card-body tight">
             <table>
-              <thead><tr><th>Heure</th><th>Patient</th><th>Téléphone</th>
+              <thead><tr><th>Heure</th><th>Client</th><th>Téléphone</th>
                 <th>Praticien</th><th>Statut</th><th>Motif</th></tr></thead>
               <tbody>
                 {[...d.absent, ...d.cancelled].map((a) => (
