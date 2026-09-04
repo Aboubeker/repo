@@ -46,15 +46,21 @@ accompagne la spécification, afin que l'équipe puisse démarrer sur du code ex
 ```bash
 npm install              # dépendances (pg, react, vite, postgres embarqué)
 npm run setup            # crée le cluster PostgreSQL local (.pgdata, port 55432)
-npm run migrate          # applique infra/db/001_schema.sql puis 002_credit_notes.sql
+npm run migrate          # applique les 6 migrations infra/db/001 → 006 dans l'ordre
 npm run seed             # référentiels + jeu de démonstration
 npm run build:web        # compile l'interface dans apps/web/dist
-npm start                # serveur applicatif sur http://127.0.0.1:3001
+npm start                # serveur applicatif sur http://localhost:3001
 ```
 
+Ou en une seule commande : `npm run setup` (= `db:start` + `migrate` + `seed`).
+
 Développement de l'interface : `npm -w @clinirdv/web run dev` (port 5173, proxy `/api` → 3001).
-Tests : `npm test` (**49 tests**, `node --test`).
+Tests : `npm test` (**203 tests** répartis en 4 fichiers, `node --test`, base locale requise).
 Cycle de vie de la base : `node scripts/db.mjs start|stop|status|reset`.
+
+Prérequis : **Node.js 22** (le script `--env-file` et la fabrication du paquet SEA en dépendent).
+Copiez `.env.example` vers `.env` avant le premier lancement — les scripts d'installation
+le font pour vous et remplacent `JWT_SECRET=change-me` par une valeur aléatoire.
 
 ### Comptes de démonstration
 
@@ -62,13 +68,19 @@ Mot de passe commun : **`Clinique2026!`**
 
 | Identifiant | Rôle | Usage |
 |---|---|---|
-| `admin` | ADMIN | Toutes permissions, administration, sauvegardes |
-| `s.martin`, `l.dubois` | RECEPTION | Accueil, agenda, file d'attente, encaissement |
-| `a.bernard`, `m.leroy`, `n.aziz` | PRACTITIONER | Agenda personnel, dossier médical, consultation |
+| `admin` | ADMIN (superutilisateur) | Toutes permissions, administration, rôles, sauvegardes |
+| `s.amrani`, `l.brahimi` | RECEPTION | Accueil, agenda, file d'attente, encaissement |
+| `a.benali`, `y.hamdani`, `n.boudiaf` | PRACTITIONER | Agenda personnel, dossier médical, consultation |
 | `c.compta` | BILLING | Facturation, caisse, impayés |
 
-Praticiens : DR-001 BERNARD (cardiologie), DR-002 LEROY (médecine générale),
-DR-003 AZIZ (dermatologie), DR-004 MOREAU (kinésithérapie), DR-005 PETIT (pédiatrie).
+Praticiens : DR-001 BENALI (cardiologie), DR-002 HAMDANI (médecine générale),
+DR-003 BOUDIAF (dermatologie), DR-004 MEKKI (kinésithérapie), DR-005 ZERROUKI (pédiatrie).
+Le jeu de démonstration comprend 20 patients, ~1 500 rendez-vous et 120 factures.
+
+> La migration `006` archive le catalogue médical généraliste et le remplace par un
+> catalogue de **clinique d'esthétique** (14 prestations, 3 spécialités). Les types
+> archivés restent visibles dans l'historique mais ne sont plus proposés à la saisie.
+
 Formats d'identifiants : patients `P-2026-000001`, rendez-vous `RDV-2026-000001`,
 factures `F-2026-00001`, avoirs `AV-2026-00001`.
 
@@ -78,17 +90,31 @@ factures `F-2026-00001`, avoirs `AV-2026-00001`.
   anti-double-booking (praticien, patient, salle, équipement), 8 triggers, vues
   `v_appointment_full` et `v_patient_summary`, fonctions `immutable_unaccent()` et
   `fn_slot_is_available()`.
-- `infra/db/002_credit_notes.sql` — migration : autorise les montants négatifs pour les avoirs
+- `infra/db/002_credit_notes.sql` — autorise les montants négatifs pour les avoirs
   (`invoice_amount_sign_check` remplace `invoice_total_amount_check`).
+- `infra/db/003_rbac_theme.sql` — rôles personnalisables, superutilisateur, thème et logo.
+- `infra/db/004_agenda_scope.sql` — cloisonnement de l'agenda par praticien
+  (`appointment.read` / `appointment.read.all`).
+- `infra/db/005_billing_fixes.sql` — corrections de facturation (ventilation assurance /
+  patient, numérotation continue factures et avoirs).
+- `infra/db/006_catalogue_esthetique.sql` — catalogue de clinique d'esthétique.
 - `apps/api/` — API HTTP : authentification (JWT 15 min + refresh rotatif en cookie
-  `HttpOnly`), RBAC à 22 permissions, patients, praticiens et disponibilités, moteur de
-  créneaux, rendez-vous et file d'attente, ressources, facturation et caisse, rapports et
-  export CSV, administration, sauvegarde/restauration, journal d'audit.
+  `HttpOnly`), RBAC à 22 permissions, gouvernance (utilisateurs, rôles, thème), patients,
+  praticiens et disponibilités, moteur de créneaux, rendez-vous et file d'attente,
+  ressources, catalogue, facturation et caisse, rapports et export CSV, administration,
+  sauvegarde/restauration, notifications, journal d'audit.
 - `apps/web/` — interface React : connexion, tableau de bord, agenda jour/semaine, assistant
-  de prise de rendez-vous, dossier patient, file d'attente temps réel, praticiens,
-  ressources, facturation/caisse/impayés, rapports, administration.
-- `apps/api/test/api.test.mjs` — suite de tests couvrant les règles critiques
-  (double-booking, concurrence, immutabilité des factures, permissions, audit).
+  de prise de rendez-vous, patients et dossier patient, file d'attente temps réel,
+  praticiens, ressources, facturation/caisse/impayés avec impression de facture, rapports,
+  administration.
+- `apps/api/test/` — 4 suites : `api.test.mjs` (règles critiques : double-booking,
+  concurrence, immutabilité des factures, permissions, audit), `locale.test.mjs`
+  (adaptation algérienne : semaine dimanche-jeudi, jours chômés, DZD),
+  `platform.test.mjs` (portabilité Linux/macOS/Windows), `ui-contract.test.mjs`
+  (contrats de l'interface).
+- `scripts/` — `app.mjs` (démarrage quotidien), `doctor.mjs` (diagnostic), `update.mjs`
+  (mise à jour), `db.mjs` (cycle de vie PostgreSQL), `selftest.mjs`, `build-package.mjs`
+  (paquet exécutable), `CliniRDV-Controle.ps1` (panneau de contrôle Windows).
 
 ### Écarts assumés entre la spécification et l'implémentation de référence
 
@@ -104,8 +130,8 @@ et documentés :
 | Sauvegarde | `pg_dump` / PITR WAL | Export SQL natif (`nativeDump()`) + empreinte SHA-256 | `pg_dump` n'est pas fourni par la distribution PostgreSQL embarquée |
 | Verrouillage agenda | Contrainte GiST seule | `pg_advisory_xact_lock(hashtext('appt:<praticien>'))` **puis** contrainte GiST | Le verrouillage `FOR UPDATE` seul provoquait des interblocages sous forte concurrence |
 
-En cas de divergence, **le schéma réel (`infra/db/001_schema.sql` + `002_credit_notes.sql`)
-fait foi** sur le document 02.
+En cas de divergence, **le schéma réel (`infra/db/001_schema.sql` et les migrations
+`002` → `006`) fait foi** sur le document 02.
 
 ### Passage en production
 
@@ -167,21 +193,25 @@ PostgreSQL embarqué, schéma, données de démonstration, compilation de l'inte
 ```bash
 git clone https://github.com/Aboubeker/repo.git clinirdv
 cd clinirdv
-git checkout arena/01a0629d-repo
 
 ./install.sh              # Linux / macOS — installe puis démarre l'application
 ```
+
+La branche `main` contient la version complète : aucun `git checkout` supplémentaire
+n'est nécessaire.
 
 ### Installation depuis le paquet publié (recommandé pour un poste client)
 
 Depuis la page **Releases** du dépôt, télécharger `CliniRDV-Windows.zip`,
 l'extraire, puis double-cliquer sur `Installer.cmd`. Le paquet contient le
-serveur compilé en un exécutable unique : **le code source n'est pas
-distribué**. Une empreinte SHA-256 accompagne l'archive.
+serveur compilé en un exécutable unique (`CliniRDV.exe`, Node.js SEA) : **le code
+source n'est pas distribué**. Une empreinte SHA-256 accompagne l'archive.
 
-Fabrication du paquet : `git tag v1.0.0 && git push origin v1.0.0`, ou
-l'onglet *Actions* pour un tirage à la demande. Détails dans
-[docs/09](docs/09-installateur-windows.md).
+> Aucune version n'a encore été publiée. La première release sera produite par
+> le workflow `.github/workflows/release.yml` au premier tag :
+> `git tag v1.0.0 && git push origin v1.0.0`, ou depuis l'onglet *Actions*
+> pour un tirage à la demande (`npm run package` en local). Détails dans
+> [docs/09](docs/09-installateur-windows.md).
 
 ### Installation depuis les sources
 
