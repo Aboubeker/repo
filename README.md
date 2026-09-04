@@ -179,10 +179,41 @@ compilé servi par `npm start`.
 ### Mettre à jour la copie locale
 
 ```bash
-npm run update     # récupère la dernière version puis réinstalle les dépendances
+npm run update     # récupère la dernière version, migre la base, recompile l'interface
 ```
 
-Sous Windows, double-cliquez sur **`Mettre-a-jour.cmd`**.
+Sous Windows, double-cliquez sur **`Mettre-a-jour.cmd`**, ou utilisez le bouton
+**Mettre a jour** du panneau de contrôle.
+
+La commande déroule six étapes, dans cet ordre :
+
+| Étape | Ce qu'elle fait |
+|---|---|
+| Modifications locales | `package.json` et `package-lock.json` réécrits par npm sont restaurés ; vos autres modifications partent dans un `git stash` |
+| Récupération | La copie est ramenée sur la **branche de référence du dépôt** (`main`), puis avancée jusqu'à la dernière version publiée |
+| Dépendances | `npm install` |
+| Base de données | PostgreSQL est **démarré s'il ne l'était pas** |
+| Schéma | `npm run migrate` — les migrations déjà appliquées ne sont jamais rejouées |
+| Interface | `npm run build:web` — sans quoi le navigateur continuerait d'afficher l'ancienne interface |
+
+Trois comportements méritent d'être connus :
+
+- **La mise à jour ne suit jamais la branche courante.** Elle vise la branche par
+  défaut du dépôt distant, découverte via `origin/HEAD`. Une copie restée sur une
+  branche de travail déjà fusionnée ne reçoit plus rien : le script s'y serait
+  déclaré « à jour » indéfiniment. Si la copie est ailleurs, elle est basculée sur
+  `main` et l'opération est annoncée à l'écran. Les branches de session `arena/*`
+  déjà fusionnées sont **signalées**, jamais supprimées : la commande de suppression
+  est affichée, à vous de l'exécuter si vous le souhaitez.
+- **La base est rendue à son état initial.** Si elle tournait, elle continue de
+  tourner ; si elle était arrêtée — le cas normal, on met à jour avant de commencer
+  la journée — elle est redémarrée le temps des migrations puis **ré-arrêtée**, y
+  compris lorsque la mise à jour échoue. Le panneau Windows retrouve donc le poste
+  tel qu'il l'a laissé, et `npm run app` redémarre l'ensemble ensuite.
+- **Vos fichiers ne sont pas perdus.** Les fichiers non suivis restent en place. Si
+  l'historique local a divergé au point d'exiger un réalignement, un fichier non
+  suivi que la version publiée recouvrirait est d'abord conservé sous
+  `<nom>.local-<horodatage>`, et l'opération est signalée.
 
 > **Pourquoi ne pas utiliser `git pull` directement ?** `npm install` réécrit
 > `package.json` et `package-lock.json`. Git refuse alors la mise à jour avec
@@ -190,6 +221,10 @@ Sous Windows, double-cliquez sur **`Mettre-a-jour.cmd`**.
 > passe facilement inaperçu, et l'on croit à tort disposer de la dernière version —
 > d'où des erreurs du type `Missing script: "app"`. `npm run update` restaure ces deux
 > fichiers générés, met de côté vos éventuelles modifications, puis se met à jour.
+
+> **Après la mise à jour**, récupérez vos modifications mises de côté avec
+> `git stash pop` si vous en aviez. Notez qu'elles se réappliquent sur `main` : si la
+> copie a été basculée depuis une autre branche, un conflit est possible.
 
 ### Démarrage quotidien
 

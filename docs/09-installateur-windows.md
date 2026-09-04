@@ -144,7 +144,7 @@ direct : il ouvre `CliniRDV.cmd`, qui lance la fenetre graphique
 | Demarrer | Lance le serveur en tache de fond, attend qu'il reponde, ouvre le navigateur |
 | Arreter | Termine le serveur, puis arrete PostgreSQL proprement |
 | Ouvrir | Reouvre la page de connexion |
-| Mettre a jour | Arrete le serveur, lance `npm run update`, affiche le journal |
+| Mettre a jour | Arrete le serveur et la base, lance `npm run update`, affiche le journal |
 | Diagnostic | Execute `npm run doctor` et affiche le resultat |
 
 Une pastille verte ou rouge indique l'etat, **doublee d'un texte** : la
@@ -167,8 +167,42 @@ Decisions qui meritent explication :
   Un `Stop-Process` laisserait un verrou et la base refuserait de redemarrer.
 - **Fermer le panneau n'arrete pas le serveur.** La clinique doit pouvoir
   fermer cette fenetre et continuer a travailler dans le navigateur.
-- **La mise a jour demande confirmation** et arrete le serveur au prealable :
-  recompiler pendant que la base sert des requetes est un risque inutile.
+- **La mise a jour demande confirmation** et arrete au prealable le serveur
+  *et* la base : migrer pendant que des connexions servent des requetes est
+  un risque inutile. Le bouton et le bouton Arreter partagent la meme
+  fonction `Stop-Application` - auparavant, la mise a jour n'arretait que
+  PostgreSQL, laissant le serveur applicatif tourner sur une base coupee
+  alors que la boite de dialogue annoncait le contraire.
+
+## Mise a jour depuis le panneau, serveur arrete
+
+C'est le scenario nominal : on met a jour avant de commencer la journee.
+Il echouait systematiquement jusqu'a la correction decrite ici.
+
+Le bouton **Mettre a jour** arrete tout, puis appelle `npm run update`.
+Ce script fait desormais deux choses de plus :
+
+- **Il demarre PostgreSQL avant d'appliquer les migrations**, par
+  `node scripts/db.mjs start`, qui est idempotent. Sans cela, l'etape du
+  schema echouait sur `connect ECONNREFUSED 127.0.0.1:55432` : le code etait
+  recupere, mais ni le schema migre ni l'interface recompilee. L'application
+  redemarrait ensuite sur une base en retard - un ecart silencieux entre le
+  code et le schema, la pire des situations pour un logiciel de gestion.
+- **Il rend a la base son etat initial.** Demarree par le script, elle est
+  re-arretee en fin de course, y compris si la mise a jour echoue. Le panneau
+  affiche donc « Serveur arrete » a l'issue de l'operation, ce qui est exact,
+  et l'utilisateur clique sur **Demarrer** : `npm run app` releve la base et
+  le serveur. Une base laissee en marche aurait fait mentir la pastille
+  d'etat et laisse un service tourner apres un echec.
+
+Second defaut corrige en meme temps, sans rapport avec Windows mais decouvert
+sur le meme poste : le script mettait a jour **la branche courante**. La copie
+de la clinique etait restee sur une branche de session deja fusionnee, qui ne
+bouge plus jamais ; `npm run update` repondait « Vous avez deja la derniere
+version » alors que `main` avait trois commits et la migration 007 d'avance.
+Le script determine maintenant la branche de reference du depot distant
+(`origin/HEAD`) et y ramene la copie, en l'annoncant. Voir la section
+« Mettre a jour la copie locale » du README pour le detail des six etapes.
 
 ## Pourquoi pas un vrai `setup.exe`
 
