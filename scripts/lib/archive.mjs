@@ -212,6 +212,18 @@ export function writeZip(entries, { prepend = null } = {}) {
  * Localise et lit l'index (EOCD + répertoire central) d'une archive, même
  * accolée derrière d'autres octets : la recherche part de la fin du buffer.
  *
+ * Deux conventions d'offsets sont acceptées :
+ *   1. ABSOLUS dans le fichier final (writeZip avec prepend) — le cas de
+ *      fabrication de cet installateur ;
+ *   2. relatifs au début de l'archive (conforme à la spec) — le cas d'une
+ *      archive « standard » accolée derrière un programme par un outil
+ *      tiers. Le vrai début de l'archive est alors retrouvé par essai :
+ *      chaque occurrence de la signature d'un entête local est un candidat,
+ *      et seul celui dont le répertoire central s'enchaîne exactement sur
+ *      cdSize octets (signatures incluses) est retenu.
+ *
+ * Les offsets d'entrée sont TOUJOURS absolus dans le buffer renvoyé.
+ *
  * @returns {{entries:Array, count:number, cdOffset:number, eocdOffset:number}}
  */
 export function readZipIndex(buf) {
@@ -228,37 +240,66 @@ export function readZipIndex(buf) {
   const cdSize = buf.readUInt32LE(eocd + 12);
   const cdOffset = buf.readUInt32LE(eocd + 16);
 
-  const entries = [];
-  let p = cdOffset;
-  for (let i = 0; i < count; i++) {
-    if (buf.readUInt32LE(p) !== 0x02014b50) {
-      throw new Error(`entête central corrompu à l'offset ${p}`);
-    }
-    const method = buf.readUInt16LE(p + 10);
-    const crc = buf.readUInt32LE(p + 16);
-    const compSize = buf.readUInt32LE(p + 20);
-    const uncompSize = buf.readUInt32LE(p + 24);
-    const nameLen = buf.readUInt16LE(p + 28);
-    const extraLen = buf.readUInt16LE(p + 30);
-    const commentLen = buf.readUInt16LE(p + 32);
-    const external = buf.readUInt32LE(p + 38);
-    const localOffset = buf.readUInt32LE(p + 42);
-    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
-    const mode = external >>> 16;
+  /** Relie le répertoire central à partir de p0 ; null si incohérent. */
+  const parseCentral = (p0) => {
+    const out = [];
+    let p = p0;
+    let firstCentralNameLen = 0;
+    for (let i = 0; i < count; i++) {
+      if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) return null;
+      const method = buf.readUInt16LE(p + 10);
+      const crc = buf.readUInt32LE(p + 16);
+      const compSize = buf.readUInt32LE(p + 20);
+      const uncompSize = buf.readUInt32LE(p + 24);
+      const nameLen = buf.readUInt16LE(p + 28);
+      const extraLen = buf.readUInt16LE(p + 30);
+      const commentLen = buf.readUInt16LE(p + 32);
+      const external = buf.readUInt32LE(p + 38);
+      const localOffset = buf.readUInt32LE(p + 42);
+      if (i === 0) firstCentralNameLen = nameLen;
+      const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+      const mode = external >>> 16;
 
-    entries.push({
-      name, method, crc, compSize, uncompSize, localOffset,
-      mode,
-      isDir: (mode & 0xF000) === 0x4000 || name.endsWith('/'),
-      isSymlink: (mode & 0xF000) === 0xA000,
-      fileMode: mode & 0o777,
-    });
-    p += 46 + nameLen + extraLen + commentLen;
+      out.push({
+        name, method, crc, compSize, uncompSize, localOffset,
+        mode,
+        isDir: (mode & 0xF000) === 0x4000 || name.endsWith('/'),
+        isSymlink: (mode & 0xF000) === 0xA000,
+        fileMode: mode & 0o777,
+      });
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    if (p - p0 !== cdSize) return null;
+    return { out, firstCentralNameLen };
+  };
+
+  // Convention 1 : offsets absolus (fabrication maison).
+  let parsed = parseCentral(cdOffset);
+  let base = 0;
+
+  // Convention 2 : offsets relatifs — recherche du vrai début de l'archive.
+  if (!parsed) {
+    const sigLocal = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+    for (let i = buf.indexOf(sigLocal); i >= 0; i = buf.indexOf(sigLocal, i + 1)) {
+      const p0 = cdOffset + i;
+      if (p0 + cdSize > eocd) break;
+      const cand = parseCentral(p0);
+      if (!cand) continue;
+      // Le premier entête local du candidat doit porter le même nom que le
+      // premier du répertoire central — sinon c'est un faux positif.
+      if (i + 30 > buf.length) continue;
+      if (buf.readUInt16LE(i + 26) !== cand.firstCentralNameLen) continue;
+      parsed = cand;
+      base = i;
+      break;
+    }
   }
-  if (p - cdOffset !== cdSize) {
-    throw new Error(`taille du répertoire central incohérente (${p - cdOffset} ≠ ${cdSize})`);
+  if (!parsed) {
+    throw new Error(`entête central corrompu (début d'archive introuvable, offset déclaré ${cdOffset})`);
   }
-  return { entries, count, cdOffset, eocdOffset: eocd };
+
+  for (const e of parsed.out) e.localOffset += base;
+  return { entries: parsed.out, count, cdOffset: cdOffset + base, eocdOffset: eocd };
 }
 
 /** Décode le corps d'une entrée à partir de son entête local. */
@@ -305,9 +346,13 @@ export function safeJoin(dest, name) {
  *   l'archive ;
  * - droits d'exécution restaurés sur POSIX (mode Unix de l'entrée).
  *
+ * @param {object} [opts]
+ * @param {boolean} [opts.overwrite=true] autoriser l'écrasement
+ * @param {function} [opts.onEntry] appelée avec l'entrée après traitement
+ *   (progression de l'installateur : « PROGRESS <pct> »).
  * @returns {{files:number, dirs:number, symlinks:number, bytes:number}}
  */
-export function extractZip(buf, dest, { overwrite = true } = {}) {
+export function extractZip(buf, dest, { overwrite = true, onEntry } = {}) {
   const { entries } = readZipIndex(buf);
   const root = resolve(dest);
   mkdirSync(root, { recursive: true });
@@ -319,6 +364,7 @@ export function extractZip(buf, dest, { overwrite = true } = {}) {
     if (!e.isDir) continue;
     mkdirSync(safeJoin(root, e.name.replace(/\/+$/, '') || '.'), { recursive: true });
     dirs++;
+    onEntry?.(e);
   }
 
   // Passe 2 : fichiers (vérification CRC + écriture + droits).
@@ -335,6 +381,7 @@ export function extractZip(buf, dest, { overwrite = true } = {}) {
     if (process.platform !== 'win32') chmodSync(out, e.fileMode || 0o644);
     files++;
     bytes += data.length;
+    onEntry?.(e);
   }
 
   // Passe 3 : symlinks (après les fichiers : la cible est disponible pour
@@ -368,9 +415,35 @@ export function extractZip(buf, dest, { overwrite = true } = {}) {
       symlinkSync(target, out);
     }
     symlinks++;
+    onEntry?.(e);
   }
 
   return { files, dirs, symlinks, bytes };
+}
+
+/**
+ * Extrait UNE SEULE entrée (vérification CRC + joint sûr) — sans le reste
+ * de l'archive. L'installateur en GUI s'en sert pour déposer l'assistant
+ * PowerShell dans un dossier temporaire sans extraire les ~40 Mo de
+ * PostgreSQL.
+ *
+ * @returns {string} chemin du fichier écrit.
+ */
+export function extractSingleEntry(buf, entryName, destDir) {
+  const { entries } = readZipIndex(buf);
+  const e = entries.find((x) => x.name === entryName);
+  if (!e) throw new Error(`entrée absente de l'archive : ${entryName}`);
+  if (e.isDir) throw new Error(`entrée est un répertoire : ${entryName}`);
+  const root = resolve(destDir);
+  const out = safeJoin(root, entryName);
+  mkdirSync(dirname(out), { recursive: true });
+  const data = readEntryData(buf, e);
+  if (crc32(data) !== e.crc) {
+    throw new Error(`CRC invalide pour « ${entryName} » : archive corrompue`);
+  }
+  writeFileSync(out, data);
+  if (process.platform !== 'win32') chmodSync(out, e.fileMode || 0o644);
+  return out;
 }
 
 function isLink(p) {
