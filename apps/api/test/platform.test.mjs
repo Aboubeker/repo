@@ -26,10 +26,20 @@ describe('Portabilité Windows / Linux / macOS', () => {
     assert.notEqual(`file://${winPath}`, canonical,
       'la concaténation naïve doit bien être reconnue comme incorrecte');
 
-    // La forme canonique est celle que produit pathToFileURL.
-    const posixPath = '/home/user/project/apps/api/src/main.mjs';
-    assert.equal(pathToFileURL(posixPath).href,
-      'file:///home/user/project/apps/api/src/main.mjs');
+    // La forme canonique est celle que produit pathToFileURL. On part d'un
+    // chemin absolu *natif* : sous Windows, un chemin POSIX comme
+    // « /home/... » serait ancre sur le lecteur courant (file:///E:/home/...),
+    // ce qui ferait echouer le test pour une raison etrangere a ce qu'il
+    // verifie. resolve() donne un chemin valide sur chaque systeme.
+    const nativePath = resolve(ROOT, 'apps/api/src/main.mjs');
+    const href = pathToFileURL(nativePath).href;
+
+    assert.ok(href.startsWith('file:///'),
+      'pathToFileURL doit produire une URL file:// canonique');
+    assert.ok(!href.includes('\\'),
+      'aucune barre inversee ne doit subsister dans une URL de fichier');
+    assert.equal(fileURLToPath(href), nativePath,
+      'la conversion doit etre reversible sur la plateforme courante');
   });
 
   test('main.mjs utilise pathToFileURL et non une concaténation de chaînes', () => {
