@@ -5,6 +5,12 @@
  */
 import pg from 'pg';
 
+// Le .env est chargé AVANT toute lecture de process.env : sans cela, un
+// exécutable lancé par raccourci (sans « --env-file ») tomberait sur les
+// valeurs de repli ci-dessous pour le hôte, le port et le mot de passe.
+import { loadEnvFile } from './env.mjs';
+loadEnvFile();
+
 // Les numeric reviennent en float pour le JSON (montants < 2^53, sans risque ici)
 pg.types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v)));
 

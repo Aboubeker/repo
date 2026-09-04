@@ -90,11 +90,18 @@ describe('Portabilité Windows / Linux / macOS', () => {
     assert.match(src, /process\.platform/,
       'la plateforme doit être détectée à l\'exécution');
 
+    // La mécanique vit dans core/pgserver.mjs, partagé entre scripts/db.mjs
+    // (dépôt) et l'exécutable distribué (--db-start, --setup, …) : c'est
+    // lui qui doit résoudre la plateforme et le suffixe .exe.
+    const pgSrc = readFileSync(resolve(ROOT, 'apps/api/src/core/pgserver.mjs'), 'utf8');
+    assert.doesNotMatch(pgSrc, /'node_modules\@embedded-postgres\/linux-x64/,
+      'pgserver.mjs ne doit pas figer linux-x64');
+    assert.match(pgSrc, /win32.*\.exe|\.exe.*win32/s,
+      'pgserver.mjs doit ajouter le suffixe .exe sous Windows');
+
     const dbSrc = readFileSync(resolve(ROOT, 'scripts/db.mjs'), 'utf8');
-    assert.doesNotMatch(dbSrc, /'node_modules\/@embedded-postgres\/linux-x64/,
-      'db.mjs ne doit pas figer linux-x64');
-    assert.match(dbSrc, /win32.*\.exe|\.exe.*win32/s,
-      'db.mjs doit ajouter le suffixe .exe sous Windows');
+    assert.match(dbSrc, /core\/pgserver\.mjs/,
+      'db.mjs doit déléguer à pgserver.mjs : une seule mécanique pour les deux mondes');
   });
 
   test('le paquet PostgreSQL de cette plateforme est bien installé', () => {

@@ -4,10 +4,22 @@
  * Aucune dépendance externe : uniquement le module crypto de Node.
  */
 import crypto from 'node:crypto';
+import { loadEnvFile } from './env.mjs';
 import { one, query } from './db.mjs';
 import { forbidden, tooMany, unauthorized } from './errors.mjs';
 
+// Le .env est chargé avant de lire JWT_SECRET : c'est ici que le défaut
+// « tous les postes partagent le même secret » se jouait. Chaque
+// installation possède son secret de 48 octets, écrit dans son .env.
+loadEnvFile();
+
 const SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+if (!process.env.JWT_SECRET) {
+  // Rend l'ancien défaut visible au lieu de silencieux : un poste distribué
+  // devrait toujours avoir un .env porteur d'un secret aléatoire.
+  console.error('\n  ⚠ JWT_SECRET absent de l\'environnement et du .env : secret de développement utilisé.\n' +
+    '    Dans une installation, le fichier .env doit contenir un JWT_SECRET aléatoire.\n');
+}
 const ACCESS_TTL = Number(process.env.ACCESS_TOKEN_TTL || 900);        // 15 min
 const REFRESH_TTL = Number(process.env.REFRESH_TOKEN_TTL || 28800);    // 8 h
 const MAX_ATTEMPTS = 5;
