@@ -29,6 +29,43 @@ Détails d'implémentation qui comptent :
 - **Le code de sortie est propagé** (`exit /b %RESULT%`), pour un déploiement
   scripté sur plusieurs postes.
 
+## Le panneau de controle
+
+Le raccourci **CliniRDV** depose sur le Bureau n'ouvre pas un demarrage
+direct : il ouvre `CliniRDV.cmd`, qui lance la fenetre graphique
+`scripts/CliniRDV-Controle.ps1`. Depuis cette fenetre unique, sans terminal :
+
+| Bouton | Effet |
+|---|---|
+| Demarrer | Lance le serveur en tache de fond, attend qu'il reponde, ouvre le navigateur |
+| Arreter | Termine le serveur, puis arrete PostgreSQL proprement |
+| Ouvrir | Reouvre la page de connexion |
+| Mettre a jour | Arrete le serveur, lance `npm run update`, affiche le journal |
+| Diagnostic | Execute `npm run doctor` et affiche le resultat |
+
+Une pastille verte ou rouge indique l'etat, **doublee d'un texte** : la
+couleur seule serait illisible pour un utilisateur daltonien. Une sonde
+interroge le port toutes les 2 secondes, si bien que l'affichage reste juste
+meme si le serveur est demarre ou arrete en dehors du panneau.
+
+Decisions qui meritent explication :
+
+- **Windows Forms plutot qu'Electron.** Une interface Electron demanderait
+  ~200 Mo de runtime et une chaine de build. WinForms est present sur tout
+  Windows 10/11 : la fenetre est native et l'installation ne grossit pas.
+- **L'etat se lit sur le port, pas sur la presence d'un processus `node`.**
+  Plusieurs processus Node peuvent coexister sur le poste ; seul le port
+  applicatif dit la verite.
+- **Le port est lu dans `.env`**, jamais code en dur : un exploitant qui
+  change `PORT` pour resoudre un conflit ne doit pas se retrouver devant un
+  panneau qui affiche une adresse fausse.
+- **L'arret appelle `node scripts/db.mjs stop`** au lieu de tuer PostgreSQL.
+  Un `Stop-Process` laisserait un verrou et la base refuserait de redemarrer.
+- **Fermer le panneau n'arrete pas le serveur.** La clinique doit pouvoir
+  fermer cette fenetre et continuer a travailler dans le navigateur.
+- **La mise a jour demande confirmation** et arrete le serveur au prealable :
+  recompiler pendant que la base sert des requetes est un risque inutile.
+
 ## Pourquoi pas un vrai `setup.exe`
 
 Un exécutable Windows se produit avec un compilateur d'installateurs — NSIS ou

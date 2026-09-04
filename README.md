@@ -177,6 +177,10 @@ recommandée : ce programme d'installation vérifie le système, installe Node.j
 si besoin, prépare la base, compile l'interface, dépose un raccourci
 **CliniRDV** sur le Bureau et lance l'application. Aucune ligne de commande.
 
+Le raccourci ouvre ensuite un **panneau de contrôle** : une fenêtre qui indique
+si le serveur tourne et permet de le démarrer, de l'arrêter, de mettre à jour
+l'application et de lancer un diagnostic — sans jamais ouvrir de terminal.
+
 ```powershell
 # Équivalent en ligne de commande
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass

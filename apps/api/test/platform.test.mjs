@@ -156,3 +156,60 @@ describe('Chaîne de mise à jour', () => {
     }
   });
 });
+
+/*
+ * Panneau de controle Windows.
+ *
+ * L'utilisateur d'une clinique ne doit jamais ouvrir un terminal : le
+ * raccourci du Bureau ouvre une fenetre graphique. Ces contrats verrouillent
+ * les proprietes qu'une relecture ne garantit pas dans la duree, d'autant
+ * qu'aucun PowerShell n'est disponible en integration continue.
+ */
+describe('Panneau de controle Windows', () => {
+  const panel = () => readFileSync(resolve(ROOT, 'scripts/CliniRDV-Controle.ps1'), 'utf8');
+  const launcher = () => readFileSync(resolve(ROOT, 'CliniRDV.cmd'), 'utf8');
+
+  test('le panneau offre demarrage, arret et mise a jour', () => {
+    const src = panel();
+    for (const frag of ['$btnStart', '$btnStop', '$btnUpdate']) {
+      assert.ok(src.includes(frag), `${frag} doit exister`);
+    }
+    assert.equal((src.match(/add_Click/g) || []).length, 5,
+      'chaque bouton doit avoir son gestionnaire');
+    assert.match(src, /ShowDialog/, 'la fenetre doit etre affichee');
+  });
+
+  test('le port vient de .env, jamais code en dur', () => {
+    const src = panel();
+    assert.match(src, /Select-String[^\n]*PORT/,
+      'le port doit etre lu depuis .env');
+    assert.ok(!src.includes('localhost:3001'),
+      'un port fige ferait mentir l\'ecran si l\'exploitant l\'a change');
+  });
+
+  test('l\'arret passe par db.mjs, pas par un simple kill', () => {
+    // Tuer le process laisserait un verrou PostgreSQL et la base
+    // refuserait de redemarrer.
+    assert.match(panel(), /db\.mjs'\)\s*stop/,
+      'PostgreSQL doit etre arrete par son propre outil');
+  });
+
+  test('les fichiers Windows restent en ASCII sans BOM', () => {
+    for (const [name, src] of [['CliniRDV.cmd', launcher()],
+                               ['CliniRDV-Controle.ps1', panel()]]) {
+      assert.ok(!src.startsWith('\uFEFF'),
+        `${name} : un BOM ferait echouer la premiere commande`);
+      const bad = [...src].filter((ch) => ch.charCodeAt(0) > 127);
+      assert.deepEqual(bad, [],
+        `${name} : la console Windows (page 850) afficherait ces caracteres en charabia`);
+    }
+  });
+
+  test('le raccourci du Bureau ouvre le panneau', () => {
+    const install = readFileSync(resolve(ROOT, 'install.ps1'), 'utf8');
+    assert.match(install, /\$target\s*=\s*Join-Path \$PSScriptRoot 'CliniRDV\.cmd'/,
+      'le raccourci doit cibler le panneau de controle');
+    assert.match(launcher(), /-WindowStyle Hidden/,
+      'aucune fenetre noire ne doit apparaitre');
+  });
+});

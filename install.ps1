@@ -173,7 +173,9 @@ Step "Raccourci sur le Bureau"
 try {
   $desktop  = [Environment]::GetFolderPath('Desktop')
   $lnk      = Join-Path $desktop 'CliniRDV.lnk'
-  $target   = Join-Path $PSScriptRoot 'Demarrer-CliniRDV.cmd'
+  # Le raccourci ouvre le panneau de controle, pas un demarrage direct :
+  # l'utilisateur veut aussi pouvoir arreter le serveur et le mettre a jour.
+  $target   = Join-Path $PSScriptRoot 'CliniRDV.cmd'
   if (Test-Path $target) {
     $shell = New-Object -ComObject WScript.Shell
     $sc = $shell.CreateShortcut($lnk)
@@ -184,7 +186,7 @@ try {
     $sc.Save()
     Ok "Raccourci « CliniRDV » cree sur le Bureau"
   } else {
-    Warn "Demarrer-CliniRDV.cmd introuvable : raccourci non cree"
+    Warn "CliniRDV.cmd introuvable : raccourci non cree"
   }
 } catch {
   # Un poste verrouille peut interdire l'ecriture sur le Bureau. Ce n'est
