@@ -31,8 +31,23 @@ const EXE = isWin ? 'CliniRDV.exe' : 'CliniRDV';
 const step = (m) => console.log(`\n\u25b8 ${m}`);
 const ok = (m) => console.log(`  \u2713 ${m}`);
 const die = (m) => { console.error(`\n  \u2717 ${m}\n`); process.exit(1); };
-const run = (cmd, args, opts = {}) =>
-  execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: isWin, ...opts });
+/*
+ * Le shell n'est indispensable que pour les lanceurs .cmd/.bat, que Windows
+ * ne sait pas executer directement. L'utiliser pour tout (ancien
+ * `shell: isWin`) faisait passer le chemin de Node a cmd.exe sans
+ * guillemets, qui le coupait au premier espace : « 'C:\Program' is not
+ * recognized... ». Or Node s'installe par defaut dans
+ * C:\Program Files\nodejs. Quand le shell est requis, on cite nous-memes
+ * les arguments contenant un caractere significatif pour cmd.exe.
+ */
+const run = (cmd, args, opts = {}) => {
+  const needsShell = isWin && /\.(cmd|bat)$/i.test(cmd);
+  const quote = (s) => (/[\s&()[\]{}^=;!'+,`~]/.test(s) ? `"${s}"` : s);
+  return execFileSync(
+    needsShell ? quote(cmd) : cmd,
+    needsShell ? args.map(quote) : args,
+    { cwd: ROOT, stdio: 'inherit', shell: needsShell, ...opts });
+};
 
 /* ------------------------------------------------------------ Nettoyage */
 step('Preparation');
@@ -57,6 +72,10 @@ try {
     // pg-native est optionnel et compile en natif : l'exclure evite un echec
     // de build, le pilote JavaScript pur suffit.
     '--external:pg-native',
+    // Les trois avertissements « import.meta is not available with the cjs
+    // output format » sont attendus et deja traites (core/root.mjs) : les
+    // afficher a chaque fabrication fait douter d'un paquet pourtant sain.
+    '--log-override:empty-import-meta=silent',
     `--outfile=${bundle}`,
   ]);
 } catch {

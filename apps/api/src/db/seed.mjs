@@ -179,11 +179,12 @@ try {
        '16' + code.slice(-3) + '0', '0550' + code.slice(-3) + '000'.slice(0, 3)]);
     await q(`INSERT INTO practitioner_specialty (practitioner_id,specialty_id,is_primary)
              VALUES ($1,$2,true)`, [p.id, specialties[spec]]);
-    // Disponibilités : dimanche→jeudi (semaine ouvrable algérienne, le
-    // week-end légal étant vendredi et samedi). Codes ISO : 7 = dimanche.
-    // Horaires 08:00–12:00 et 13:00–16:30, la coupure méridienne étant plus
-    // courte qu'en Europe.
-    for (const wd of [7, 1, 2, 3, 4]) {
+    // Disponibilités : sept jours sur sept. Une clinique d'esthétique
+    // reçoit surtout le vendredi et le samedi, quand sa clientèle est
+    // libre ; le week-end légal n'est donc pas chômé ici (migration 007).
+    // Codes ISO : 7 = dimanche. Horaires 08:00–12:00 et 13:00–16:30, la
+    // coupure méridienne étant plus courte qu'en Europe.
+    for (const wd of [7, 1, 2, 3, 4, 5, 6]) {
       await q(`INSERT INTO availability_rule (practitioner_id,weekday,start_time,end_time,room_id,slot_minutes)
                VALUES ($1,$2,'08:00','12:00',$3,$4)`, [p.id, wd, rooms[room], slot]);
       if (wd !== 4) {  // jeudi après-midi non travaillé (veille de week-end)

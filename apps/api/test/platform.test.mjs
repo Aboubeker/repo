@@ -278,6 +278,46 @@ describe('Paquet d\'installation', () => {
       /--migrate/, 'l\'executable doit savoir preparer la base');
   });
 
+  test('le shell n\'est utilise que pour les lanceurs .cmd/.bat', () => {
+    /*
+     * Regression Windows : `shell: isWin` pour tous les outils faisait passer
+     * le chemin de Node (C:\Program Files\nodejs\node.exe) a cmd.exe sans
+     * guillemets, coupe au premier espace : « 'C:\Program' is not
+     * recognized ». Le paquet ne se fabriquait sur aucune installation
+     * Windows standard, alors que tout passait sous Linux.
+     */
+    const src = build();
+    assert.doesNotMatch(src, /shell:\s*isWin\s*,/,
+      'shell: isWin envoie node.exe a cmd.exe sans guillemets');
+    assert.match(src, /const needsShell = isWin && \/\\\.\(cmd\|bat\)\$\/i\.test\(cmd\)/,
+      'le shell doit etre reserve aux lanceurs .cmd/.bat');
+    assert.match(src, /shell:\s*needsShell/,
+      'execFileSync doit recevoir shell: needsShell');
+
+    // La logique est rejouee ici avec isWin force a true : sous Linux le
+    // chemin cmd.exe n'est jamais emprunte, le test doit pourtant le couvrir.
+    const isWin = true;
+    const needsShell = (cmd) => isWin && /\.(cmd|bat)$/i.test(cmd);
+    const quote = (s) => (/[\s&()[\]{}^=;!'+,`~]/.test(s) ? `"${s}"` : s);
+    assert.equal(needsShell('C:\\Program Files\\nodejs\\node.exe'), false,
+      'node.exe doit etre lance directement, sans cmd.exe');
+    assert.equal(needsShell('C:\\p\\node_modules\\.bin\\esbuild.cmd'), true);
+    assert.equal(needsShell('npm.cmd'), true);
+    assert.equal(needsShell('signtool'), false);
+    assert.match(src, /const quote = \(s\) =>/,
+      'les arguments passes au shell doivent etre cites');
+    assert.equal(quote('C:\\Program Files\\x\\out.cjs'), '"C:\\Program Files\\x\\out.cjs"',
+      'un chemin avec espace doit etre entoure de guillemets');
+    assert.equal(quote('--minify'), '--minify', 'un argument simple reste tel quel');
+  });
+
+  test('esbuild ne repete pas les avertissements import.meta connus', () => {
+    // Trois avertissements « import.meta is not available with the cjs
+    // output format » sont attendus et deja traites par core/root.mjs.
+    assert.match(build(), /--log-override:empty-import-meta=silent/,
+      'l\'avertissement attendu doit etre reduit au silence');
+  });
+
   test('la chaine de publication est declaree', () => {
     const wf = readFileSync(resolve(ROOT, '.github/workflows/release.yml'), 'utf8');
     assert.match(wf, /runs-on: windows-latest/,
