@@ -17,7 +17,7 @@
  * core/db.mjs, et un même processus peut servir plusieurs contextes.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import pg from 'pg';
 import { ROOT } from './root.mjs';
@@ -83,9 +83,17 @@ export function pgInit() {
   const cfg = pgConfig();
   if (!cfg.bin) throw new Error(
     'PostgreSQL embarqué introuvable. Vérifiez CLINIRDV_PG_BIN ou le dossier pg/ à côté de l\'exécutable.');
-  if (existsSync(cfg.data)) return false;
-  mkdirSync(cfg.data, { recursive: true });
-  const pwFile = resolve(cfg.data, '.initdb-pwfile');
+  if (existsSync(cfg.data)) {
+    // Dossier VIDE : initdb qui se serait arrêté en cours de route. On le
+    // retire pour qu'il recrée le cluster proprement ; un dossier contenant
+    // déjà un cluster signifie que l'initialisation est faite.
+    if (readdirSync(cfg.data).length > 0) return false;
+    rmSync(cfg.data, { recursive: true });
+  }
+  // Le fichier de mot de passe est HORS du dossier du cluster : initdb exige
+  // un dossier vide ou inexistant, un fichier déposé dedans ferait échouer
+  // l'initialisation.
+  const pwFile = resolve(cfg.data, '..', '.initdb-pwfile');
   writeFileSync(pwFile, cfg.password, { mode: 0o600 });
   const r = run(cfg.bin, 'initdb', [
     '-D', cfg.data, '-U', cfg.user, '--pwfile', pwFile,

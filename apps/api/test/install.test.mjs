@@ -7,7 +7,7 @@
  * qui est précisément la propriété exigée pour rejouer une installation
  * sur un poste déjà en service.
  */
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,14 +16,33 @@ import { query, one, closePool } from '../src/core/db.mjs';
 import { createAdmin, runInstall } from '../src/db/install.mjs';
 import { ensureRbac } from '../src/db/rbac.mjs';
 
-const TEST_USER = 'install-e2e';
-const TEST_PW = 'Install2026!xyz';
+/*
+ * Nom trié APRÈS tous les comptes de démonstration : /api/branding ne propose
+ * que les 6 premiers comptes actifs (LIMIT 6), et la suite d'API itère dessus
+ * en parallèle pour vérifier leurs connexions. Un compte de test qui y
+ * apparaîtrait croiserait ces itérations (et leur verrouillage anti-force-
+ * brute). « zz- » le place hors de la fenêtre.
+ *
+ * Le suffixe horodaté rend le nom UNIQUE PAR EXÉCUTION : la suite d'API
+ * restaure la base depuis une sauvegarde pendant les tests, ce qui ressuscite
+ * les lignes supprimées — un nom fixe finirait par exister avant
+ * createAdmin et casserait l'assertion « created » sans aucune faute de code.
+ */
+const RUN_STAMP = Date.now();
+const TEST_USER = `zz-e2e-${RUN_STAMP}`;
+const TEST_PW = 'Clinique2026!';
+
+// Nettoyage en début ET en fin de fichier : un plantage entre les deux ne
+// doit pas laisser de résidu qui casserait l'exécution suivante.
+before(async () => {
+  await query(`DELETE FROM user_account WHERE username LIKE $1`, ['zz-e2e-%']);
+});
+after(async () => {
+  await query(`DELETE FROM user_account WHERE username LIKE $1`, ['zz-e2e-%']);
+  await closePool();
+});
 
 describe('createAdmin', () => {
-
-  test.after(async () => {
-    await query(`DELETE FROM user_account WHERE username = $1`, [TEST_USER]);
-  });
 
   test('crée un superutilisateur portant le rôle ADMIN', async () => {
     const r = await createAdmin({ username: TEST_USER, password: TEST_PW });
@@ -103,4 +122,3 @@ describe('runInstall', () => {
   });
 });
 
-test.after(closePool);

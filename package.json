@@ -16,7 +16,7 @@
     "dev:web": "npm -w @clinirdv/web run dev",
     "build:web": "npm -w @clinirdv/web run build",
     "start": "node --env-file=.env apps/api/src/main.mjs",
-    "test": "node --env-file=.env --test apps/api/test/*.test.mjs",
+    "test": "node --env-file=.env --test apps/api/test/*.test.mjs scripts/test/*.test.mjs",
     "setup": "npm run db:start && npm run migrate && npm run seed",
     "app": "node scripts/app.mjs",
     "doctor": "node scripts/doctor.mjs",
