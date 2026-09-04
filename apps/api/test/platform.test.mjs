@@ -14,6 +14,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
+/*
+ * Les décisions de « npm run update » (branche visée, tri des modifications
+ * locales, branches résiduelles) sont exportées par le script afin d'être
+ * vérifiées ici avec un faux Git : les rejouer pour de vrai supposerait un
+ * dépôt distant, que l'intégration continue n'a pas. L'import ne déclenche
+ * aucun traitement, le script étant protégé par un garde de point d'entrée.
+ */
+const update = await import(pathToFileURL(resolve(ROOT, 'scripts/update.mjs')).href);
+
+
 describe('Portabilité Windows / Linux / macOS', () => {
 
   test('la détection du point d\'entrée résiste aux chemins Windows', () => {
@@ -154,6 +164,240 @@ describe('Chaîne de mise à jour', () => {
           `${f} annonce le compte « ${account} », absent du jeu de données`);
       }
     }
+  });
+});
+
+/*
+ * Mise a jour en exploitation — deux echecs constates sur le poste de la
+ * clinique (Windows, dossier E:\repo) lors du passage a la PR #3.
+ *
+ * A. La base n'etait jamais demarree avant les migrations. Sur un poste ou
+ *    PostgreSQL est a l'arret — le cas normal : on met a jour avant de
+ *    commencer la journee, et le bouton « Mettre a jour » du panneau arrete
+ *    tout au prealable — la sortie etait « connect ECONNREFUSED
+ *    127.0.0.1:55432 ». Le code etait recupere, le schema non migre et
+ *    l'interface non recompilee : l'application demarrait ensuite sur une
+ *    base en retard.
+ *
+ * B. Le script mettait a jour la branche courante. Une copie restee sur une
+ *    branche de session deja fusionnee ne bouge plus jamais : le script
+ *    annoncait « Vous avez deja la derniere version » alors que main avait
+ *    trois commits et la migration 007 d'avance. Une erreur silencieuse,
+ *    exactement celle que cet outil existe pour eviter.
+ */
+describe('Mise à jour — base de données et branche visée', () => {
+  const src = () => readFileSync(resolve(ROOT, 'scripts/update.mjs'), 'utf8');
+
+  /** Faux Git : répond d'après la ligne de commande exacte. */
+  const fakeGit = (table) => (...args) => {
+    const key = args.join(' ');
+    return key in table
+      ? { status: 0, stdout: table[key], stderr: '' }
+      : { status: 1, stdout: '', stderr: `commande inattendue : ${key}` };
+  };
+
+  /* ------------------------------------------------------- Défaut A */
+
+  test('la base est démarrée avant l\'étape des migrations', () => {
+    const s = src();
+    assert.match(s, /scripts\/db\.mjs/,
+      'update.mjs doit piloter la base par scripts/db.mjs');
+    const start = s.indexOf("dbRun('start'");
+    const migrate = s.indexOf("'run', 'migrate'");
+    assert.ok(start > 0, 'update.mjs doit démarrer PostgreSQL (db.mjs start)');
+    assert.ok(migrate > 0, 'update.mjs doit appliquer les migrations');
+    assert.ok(start < migrate,
+      'sans démarrage préalable, les migrations échouent en ECONNREFUSED sur ' +
+      'un poste où la base est à l\'arrêt — le cas normal avant la journée');
+  });
+
+  test('l\'état initial de la base est relevé, puis rendu', () => {
+    const s = src();
+    assert.match(s, /dbRun\('status'\)/,
+      'l\'état de départ doit être connu : c\'est lui qui décide de l\'état final');
+    assert.match(s, /function restoreDatabaseState/,
+      'la base doit être rendue à son état initial en fin de mise à jour');
+    assert.match(s, /dbStartedByUpdate/,
+      'seule une base démarrée par le script doit être arrêtée par lui');
+    // Le panneau Windows arrête tout avant de lancer la mise à jour et
+    // affiche ensuite « Serveur arrete » : lui rendre un service démarré
+    // ferait mentir sa pastille d'état.
+    assert.match(s, /restoreDatabaseState\(\);/,
+      'la restauration doit être réellement appelée');
+  });
+
+  test('une mise à jour qui échoue ne laisse pas la base démarrée', () => {
+    const s = src();
+    const fail = s.indexOf('const fail = (m, fix) => {');
+    const restore = s.indexOf('restoreDatabaseState();', fail);
+    const exit = s.indexOf('process.exit(1)', fail);
+    assert.ok(fail > 0 && restore > fail && restore < exit,
+      'fail() doit rendre son état à la base avant de sortir');
+    assert.match(s, /process\.on\('exit', restoreDatabaseState\)/,
+      'un filet doit couvrir les sorties imprévues');
+  });
+
+  /* ------------------------------------------------------- Défaut B */
+
+  test('la mise à jour vise la branche de référence, pas la branche courante', () => {
+    const s = src();
+    assert.doesNotMatch(s, /git\('fetch', 'origin', branch\)/,
+      'récupérer la branche courante laisse une copie sur une branche morte ' +
+      'croire qu\'elle est à jour');
+    assert.match(s, /git\('fetch', 'origin', target\)/,
+      'le fetch doit porter sur la branche de référence du dépôt distant');
+    assert.match(s, /refs\/remotes\/origin\/HEAD/,
+      'la branche par défaut du dépôt doit être découverte, jamais supposée');
+    assert.match(s, /git\('checkout', target\)/,
+      'une copie sur une autre branche doit être ramenée sur la référence');
+  });
+
+  test('origin/HEAD désigne la branche de référence, sans accès réseau', () => {
+    const { branch, source } = update.resolveDefaultBranch(fakeGit({
+      'symbolic-ref --short refs/remotes/origin/HEAD': 'origin/main\n',
+    }));
+    assert.equal(branch, 'main');
+    assert.equal(source, 'local', 'la référence locale évite un aller-retour réseau');
+  });
+
+  test('à défaut de référence locale, le dépôt distant est interrogé', () => {
+    const { branch, source } = update.resolveDefaultBranch(fakeGit({
+      'ls-remote --symref origin HEAD':
+        'ref: refs/heads/production\tHEAD\n1234567\tHEAD\n',
+    }));
+    assert.equal(branch, 'production',
+      'un dépôt dont la branche par défaut n\'est pas « main » doit être suivi');
+    assert.equal(source, 'distant');
+  });
+
+  test('sans aucune indication, « main » est retenu mais signalé', () => {
+    const { branch, source } = update.resolveDefaultBranch(fakeGit({}));
+    assert.equal(branch, 'main');
+    assert.equal(source, 'defaut',
+      'la supposition doit être identifiable pour être signalée à l\'utilisateur');
+  });
+
+  test('une HEAD détachée est reconnue comme absence de branche', () => {
+    assert.equal(update.currentBranch(fakeGit({
+      'rev-parse --abbrev-ref HEAD': 'HEAD\n' })), null);
+    assert.equal(update.currentBranch(fakeGit({
+      'rev-parse --abbrev-ref HEAD': 'arena/01a0629d-repo\n' })), 'arena/01a0629d-repo');
+  });
+
+  /* ------------------------------- Sécurité du travail de l'utilisateur */
+
+  test('les modifications locales sont toujours mises de côté', () => {
+    // Le stash est le seul filet de l'exploitant : la bascule de branche ne
+    // doit pas l'avoir remplacé par une remise à zéro.
+    assert.match(src(), /git\('stash', 'push', '-m', 'clinirdv-update'\)/,
+      'le mécanisme git stash doit rester opérationnel');
+  });
+
+  test('aucune branche locale n\'est supprimée par le script', () => {
+    const s = src();
+    assert.doesNotMatch(s, /'branch',\s*'-[dD]'/,
+      'proposer la suppression des branches de session est acceptable, ' +
+      'la forcer ne l\'est pas');
+    assert.match(s, /Suppression facultative/,
+      'les branches résiduelles doivent être signalées, pas effacées');
+  });
+
+  test('seules les branches de session fusionnées sont proposées à la suppression', () => {
+    const fmt = '--format=%(refname:short)';
+    const g = fakeGit({
+      [`branch --list arena/* ${fmt}`]:
+        'arena/01a0629d-repo\narena/01a06d9a-repo\narena/en-cours\n',
+      [`branch --merged HEAD --list arena/* ${fmt}`]:
+        'arena/01a0629d-repo\narena/01a06d9a-repo\n',
+    });
+    assert.deepEqual(update.staleSessionBranches(g, 'main'),
+      ['arena/01a0629d-repo', 'arena/01a06d9a-repo'],
+      'une branche non fusionnée peut porter du travail : elle est laissée');
+    assert.deepEqual(update.staleSessionBranches(g, 'arena/01a0629d-repo'),
+      ['arena/01a06d9a-repo'],
+      'la branche courante ne se propose pas elle-même à la suppression');
+  });
+
+  test('les fichiers non suivis sont distingués des modifications', () => {
+    // « git stash » ne sauvegarde pas les fichiers non suivis : les compter
+    // comme des modifications personnelles promettait une protection
+    // inexistante.
+    const { generated, personal, untracked } = update.classifyChanges(
+      ' M package.json\n' +
+      'M  package-lock.json\n' +
+      ' M apps/web/src/locale.js\n' +
+      '?? sauvegarde-2026-09-04.sql\n');
+    assert.deepEqual(generated, ['package.json', 'package-lock.json']);
+    assert.deepEqual(personal, ['apps/web/src/locale.js']);
+    assert.deepEqual(untracked, ['sauvegarde-2026-09-04.sql']);
+  });
+
+  test('un fichier non suivi que la version publiée recouvrirait est conservé', () => {
+    // « git reset --hard », employé en repli sur historique divergent, écrase
+    // ces fichiers sans un mot. Constaté au banc d'essai.
+    const g = fakeGit({ 'cat-file -e FETCH_HEAD:docs/10-nouveau.md': '' });
+    assert.deepEqual(
+      update.untrackedCollisions(g, ['docs/10-nouveau.md', 'notes-perso.txt'], 'FETCH_HEAD'),
+      ['docs/10-nouveau.md'],
+      'seul un fichier réellement présent dans la version publiée est écarté');
+    assert.match(src(), /\.local-\$\{stamp\}|local-\$\{stamp\}/,
+      'le fichier menacé doit être conservé sous un nom horodaté');
+  });
+
+  test('importer update.mjs ne déclenche aucune mise à jour', () => {
+    assert.match(src(), /import\.meta\.url === pathToFileURL\(process\.argv\[1\]\)\.href/,
+      'le garde de point d\'entrée doit passer par pathToFileURL (Windows)');
+  });
+
+  test('le lanceur Windows n\'annonce pas un succes qu\'il n\'a pas obtenu', () => {
+    // « Mise a jour terminee » s'affichait meme apres un echec du script :
+    // cmd.exe poursuit le fichier de commandes sans regarder le code de
+    // sortie. L'exploitant repartait convaincu d'etre a jour.
+    const cmd = readFileSync(resolve(ROOT, 'Mettre-a-jour.cmd'), 'utf8');
+    const call = cmd.indexOf('node scripts/update.mjs');
+    const done = cmd.search(/^echo\s+Mise a jour terminee/m);
+    assert.ok(call > 0 && done > call, 'le lanceur doit appeler update.mjs');
+    assert.match(cmd.slice(call, done), /if errorlevel 1/,
+      'le code de sortie de update.mjs doit etre verifie avant de conclure');
+    assert.match(cmd.slice(call, done), /exit \/b 1/,
+      'un echec doit se propager au code de sortie du lanceur');
+    assert.ok(!cmd.startsWith('\uFEFF') && [...cmd].every((ch) => ch.charCodeAt(0) < 128),
+      'Mettre-a-jour.cmd doit rester en ASCII strict, sans BOM (page 850)');
+  });
+});
+
+/*
+ * Panneau Windows et mise a jour : le bouton « Mettre a jour » s'execute
+ * serveur arrete. C'est le scenario qui echouait systematiquement.
+ */
+describe('Panneau de controle — mise a jour serveur arrete', () => {
+  const panel = () => readFileSync(resolve(ROOT, 'scripts/CliniRDV-Controle.ps1'), 'utf8');
+
+  test('la mise a jour arrete reellement le serveur, pas seulement la base', () => {
+    // La boite de dialogue annonce « Le serveur sera arrete pendant
+    // l'operation » alors que seul PostgreSQL l'etait : le serveur applicatif
+    // continuait de tourner, base coupee, pendant toute la migration.
+    const src = panel();
+    assert.match(src, /function Stop-Application/,
+      'l\'arret complet doit etre factorise');
+    const def = src.indexOf('function Stop-Application');
+    const update = src.indexOf('$btnUpdate.add_Click');
+    assert.ok(def > 0 && def < update,
+      'Stop-Application doit etre definie avant son utilisation');
+    assert.match(src.slice(update), /Stop-Application/,
+      'le bouton Mettre a jour doit arreter serveur et base');
+    assert.doesNotMatch(src, /Sauvegarde de securite/,
+      'ce message annoncait une sauvegarde qui n\'avait jamais lieu');
+  });
+
+  test('le panneau ne redemarre rien de lui-meme apres la mise a jour', () => {
+    // update.mjs rend la base a l'etat arrete : la pastille doit rester
+    // coherente, et c'est a l'utilisateur de cliquer sur Demarrer.
+    const after = panel().slice(panel().indexOf('$btnUpdate.add_Click'));
+    assert.match(after, /Cliquez sur Demarrer/,
+      'l\'utilisateur doit savoir quoi faire une fois la mise a jour finie');
+    assert.doesNotMatch(after.slice(0, after.indexOf('$btnDiag')), /'npm', 'run', 'app'/,
+      'la mise a jour ne doit pas relancer l\'application dans le dos de l\'utilisateur');
   });
 });
 

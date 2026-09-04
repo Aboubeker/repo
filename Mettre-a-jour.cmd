@@ -20,6 +20,16 @@ git checkout -- package.json package-lock.json 2>nul
 
 if exist "scripts\update.mjs" (
   node scripts/update.mjs
+  REM Sans ce controle, l'ecran annoncait un succes meme apres un echec du
+  REM script : l'exploitant repartait convaincu d'etre a jour.
+  if errorlevel 1 (
+    echo.
+    echo   [x] La mise a jour a echoue. Rien n'a ete laisse a moitie applique.
+    echo       Relancez, ou lancez le diagnostic : npm run doctor
+    echo.
+    pause
+    exit /b 1
+  )
 ) else (
   echo.
   echo   Recuperation de la derniere version...

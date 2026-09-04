@@ -193,6 +193,24 @@ $timer.add_Tick({ Update-State })
 $timer.Start()
 
 # ------------------------------------------------------------- Actions
+
+# Arret complet : le serveur applicatif, puis PostgreSQL. Partage par le
+# bouton Arreter et par la mise a jour, qui exige les deux a l'arret - le
+# serveur garderait sinon des connexions ouvertes pendant la migration.
+function Stop-Application {
+  $p = Get-ServerProcess
+  if ($p) {
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    Write-Log "Processus $($p.Id) arrete."
+  } else {
+    Write-Log 'Aucun processus trouve sur le port.'
+  }
+  # PostgreSQL est arrete proprement par son propre outil : tuer le process
+  # laisserait un verrou et la base refuserait de redemarrer.
+  & node (Join-Path $Root 'scripts\db.mjs') stop 2>&1 | Out-Null
+  Write-Log 'Base de donnees arretee.'
+}
+
 $btnStart.add_Click({
   Write-Log 'Demarrage en cours...'
   $btnStart.Enabled = $false
@@ -222,17 +240,7 @@ $btnStart.add_Click({
 
 $btnStop.add_Click({
   Write-Log 'Arret du serveur...'
-  $p = Get-ServerProcess
-  if ($p) {
-    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-    Write-Log "Processus $($p.Id) arrete."
-  } else {
-    Write-Log 'Aucun processus trouve sur le port.'
-  }
-  # PostgreSQL est arrete proprement par son propre outil : tuer le process
-  # laisserait un verrou et la base refuserait de redemarrer.
-  & node (Join-Path $Root 'scripts\db.mjs') stop 2>&1 | Out-Null
-  Write-Log 'Base de donnees arretee.'
+  Stop-Application
   Start-Sleep -Milliseconds 600
   Update-State
 })
@@ -245,10 +253,11 @@ $btnUpdate.add_Click({
     'Mise a jour', 'YesNo', 'Question')
   if ($r -ne 'Yes') { return }
 
-  # Une sauvegarde avant toute mise a jour : on touche a une base qui
-  # contient des dossiers clients et des factures.
-  Write-Log 'Sauvegarde de securite...'
-  & node (Join-Path $Root 'scripts\db.mjs') stop 2>&1 | Out-Null
+  # Le serveur ET la base sont arretes avant l'operation : migrer sous des
+  # connexions ouvertes est un risque inutile. La mise a jour redemarre la
+  # base le temps d'appliquer les migrations, puis la rend a cet etat arrete.
+  Write-Log 'Arret du serveur et de la base...'
+  Stop-Application
 
   Write-Log 'Mise a jour en cours (cela peut prendre une minute)...'
   $form.Cursor = 'WaitCursor'
@@ -258,7 +267,7 @@ $btnUpdate.add_Click({
   $btnUpdate.Enabled = $true
 
   foreach ($line in $out) { if ("$line".Trim()) { Write-Log "$line" } }
-  Write-Log 'Mise a jour terminee.'
+  Write-Log 'Mise a jour terminee. Cliquez sur Demarrer pour relancer.'
   Update-State
 })
 
