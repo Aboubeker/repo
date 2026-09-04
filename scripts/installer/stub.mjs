@@ -245,14 +245,26 @@ export async function install({
   const buf = readSelfArchive();
   const total = readZipIndex(buf).count;
   let done = 0;
-  const r = extractZip(buf, targetDir, {
-    onEntry: () => {
-      done++;
-      if (done % 5 === 0 || done === total) {
-        progress(10 + Math.floor(45 * done / total), 'Extraction des fichiers');
-      }
-    },
-  });
+  let r;
+  try {
+    r = extractZip(buf, targetDir, {
+      onEntry: () => {
+        done++;
+        if (done % 5 === 0 || done === total) {
+          progress(10 + Math.floor(45 * done / total), 'Extraction des fichiers');
+        }
+      },
+    });
+  } catch (e) {
+    // Un binaire en cours d'exécution ne peut pas être réécrit. C'est le
+    // cas « mise à jour alors que CliniRDV tourne » : le dire clairement.
+    if (e.code === 'ETXTBSY' || e.code === 'EBUSY') {
+      throw new InstallerError(
+        'un fichier de l\'installation est verrouillé : CliniRDV est probablement en cours d\'exécution. ' +
+        'Arrêtez-le avant de mettre à jour.');
+    }
+    throw e;
+  }
   log(`${r.files} fichiers extraits.`);
 
   /* 3 — configuration (.env JAMAIS écrasé) ------------------------ */
@@ -294,7 +306,10 @@ export async function install({
     });
   } finally {
     // Le fichier de mot de passe ne survit jamais, même à un échec.
-    unlinkSync(pwFile, { force: true });
+    // L'exécutable le supprime lui-même en fin de --setup : rmSync (et non
+    // unlinkSync — son « force » n'avale pas l'ENOENT) fait la passe de
+    // sécurité.
+    rmSync(pwFile, { force: true });
   }
   if (spawned.error) throw new InstallerError(`lancement impossible : ${spawned.error.message}`);
   if (spawned.stdout) {
