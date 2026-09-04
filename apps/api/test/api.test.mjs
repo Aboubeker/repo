@@ -22,8 +22,13 @@ before(async () => {
   await query(`DELETE FROM encounter               WHERE appointment_id IN ${scope}`);
   await query(`DELETE FROM appointment_resource    WHERE appointment_id IN ${scope}`);
   await query(`DELETE FROM appointment_status_history WHERE appointment_id IN ${scope}`);
-  // Les factures issues d'exécutions précédentes sont supprimées avant leurs lignes
-  const invScope = `(SELECT DISTINCT invoice_id FROM invoice_line WHERE appointment_id IN ${scope})`;
+  // Les factures issues d'exécutions précédentes sont supprimées avant leurs
+  // lignes. Le périmètre couvre aussi les factures du client de test qui ne
+  // portent qu'une ligne libre (sans appointment_id) : sinon la fiche client
+  // reste référencée et sa suppression échoue (FK RESTRICT).
+  const invScope = `(SELECT DISTINCT invoice_id FROM invoice_line WHERE appointment_id IN ${scope}
+                     UNION SELECT id FROM invoice
+                            WHERE patient_id IN (SELECT id FROM patient WHERE last_name = 'TESTPATIENT'))`;
   await query(`DELETE FROM payment      WHERE invoice_id IN ${invScope}`);
   // Les avoirs portent un montant négatif que la contrainte
   // « invoice_amount_sign_check » n'autorise qu'accompagné d'un
@@ -39,6 +44,9 @@ before(async () => {
   await query(`DELETE FROM invoice WHERE credited_invoice_id IN ${invScope}`);
   await query(`UPDATE invoice SET status = 'DRAFT' WHERE id IN ${invScope}`);
   await query(`DELETE FROM invoice_line WHERE appointment_id IN ${scope}`);
+  await query(`DELETE FROM invoice_line WHERE invoice_id IN ${invScope}`);
+  await query(`DELETE FROM invoice WHERE id IN ${invScope}
+                 AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.invoice_id = invoice.id)`);
   await query(`DELETE FROM invoice WHERE NOT EXISTS
                  (SELECT 1 FROM invoice_line l WHERE l.invoice_id = invoice.id)
                  AND created_at > now() - interval '1 day'
@@ -303,17 +311,52 @@ describe('Rendez-vous — règles de planification', () => {
     const d = await (await api(
       `/api/appointments/slots?practitionerId=${practitioner.id}` +
       `&appointmentTypeId=${type.id}&from=${from}&to=${to}`)).json();
+    /* Seules les plages horaires sont contrôlées. Le jour de semaine ne
+     * l'est plus : la clinique est ouverte sept jours sur sept (migration
+     * 007), le vendredi et le samedi sont des jours de réception. */
     for (const s of d.slots.slice(0, 40)) {
       const start = new Date(s.start);
-      const dow = ((start.getDay() + 6) % 7) + 1;   // 1 = lundi … 7 = dimanche
-      // Week-end algérien : vendredi (5) et samedi (6) sont chômés,
-      // le dimanche (7) est au contraire le premier jour ouvré.
-      assert.ok(dow !== 5 && dow !== 6,
-        `créneau proposé un jour de week-end (jour ISO ${dow})`);
       const h = start.getHours();
       assert.ok((h >= 8 && h < 12) || (h >= 13 && h < 17),
         `créneau hors plage : ${start.toISOString()}`);
     }
+  });
+
+  test('vendredi et samedi sont des jours de réception (ouverture 7j/7)', async () => {
+    /* Régression ciblée : sans plage déclarée les jours ISO 5 et 6, le
+     * moteur ne renvoie rien et l'accueil ne peut pas placer un client
+     * le week-end — précisément quand la clientèle d'une clinique
+     * d'esthétique est disponible. On balaie deux semaines pour être
+     * certain de couvrir un vendredi et un samedi. */
+    const from = new Date(Date.now() + 1 * 864e5).toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10);
+    const d = await (await api(
+      `/api/appointments/slots?practitionerId=${practitioner.id}` +
+      `&appointmentTypeId=${type.id}&from=${from}&to=${to}`)).json();
+    const days = new Set(d.slots.map((s) => ((new Date(s.start).getDay() + 6) % 7) + 1));
+    assert.ok(days.has(5), 'aucun créneau proposé un vendredi (jour ISO 5)');
+    assert.ok(days.has(6), 'aucun créneau proposé un samedi (jour ISO 6)');
+  });
+
+  test('un jour férié reste réservable : la fermeture ne bloque plus l\'agenda', async () => {
+    /* Le 1er novembre (Anniversaire de la Révolution) est signalé dans
+     * l'agenda mais la clinique reçoit. Une « fermeture » libellée comme
+     * un férié est retirée par la migration 007 ; en ajouter une par
+     * l'API doit rester possible pour une fermeture réelle (travaux),
+     * ce que couvre le dernier assert. */
+    const today = new Date().toISOString().slice(0, 10);
+    const year = new Date().getFullYear() + (today >= `${new Date().getFullYear()}-11-01` ? 1 : 0);
+    const day = `${year}-11-01`;
+    const d = await (await api(
+      `/api/appointments/slots?practitionerId=${practitioner.id}` +
+      `&appointmentTypeId=${type.id}&from=${day}&to=${day}`)).json();
+    assert.ok(d.slots.length > 0, `aucun créneau le ${day} (jour férié à date fixe)`);
+
+    const leftover = await one(
+      `SELECT count(*)::int AS n FROM clinic_closure
+        WHERE label ILIKE '%férié%' OR label ILIKE '%ferie%'
+           OR label ILIKE '%fête%'  OR label ILIKE '%fete%'`);
+    assert.equal(leftover.n, 0, 'une fermeture « jour férié » subsiste et bloque la réservation');
   });
 
   test('création d\'un rendez-vous sur un créneau libre', async () => {
@@ -554,12 +597,23 @@ describe('Facturation', () => {
       body: { openingFloat: 0 } });
   };
 
+  /* Un rendez-vous terminé, non facturé, et SEUL dans sa journée pour ce
+     client. Depuis le regroupement « une facture par journée », prendre un
+     acte au hasard peut tomber sur une facture partagée avec un autre acte :
+     l'émettre puis la créditer ferait échouer les tests suivants en 404. */
+  const loneCompletedAppointment = () => one(
+    `SELECT a.id FROM appointment a
+      WHERE a.status = 'COMPLETED'
+        AND NOT EXISTS (SELECT 1 FROM invoice_line l WHERE l.appointment_id = a.id)
+        AND NOT EXISTS (
+              SELECT 1 FROM appointment b
+               WHERE b.patient_id = a.patient_id AND b.id <> a.id
+                 AND lower(b.period)::date = lower(a.period)::date)
+      LIMIT 1`);
+
   test('facturation d\'un rendez-vous terminé', async () => {
-    const a = await one(
-      `SELECT a.id FROM appointment a
-        WHERE a.status = 'COMPLETED'
-          AND NOT EXISTS (SELECT 1 FROM invoice_line l WHERE l.appointment_id = a.id)
-        LIMIT 1`);
+    const a = await loneCompletedAppointment();
+    assert.ok(a, 'préalable : un rendez-vous terminé, seul dans sa journée, non facturé');
     const r = await api('/api/invoices', { method: 'POST', body: { appointmentId: a.id } });
     const inv = await r.json();
     assert.equal(r.status, 201, JSON.stringify(inv));
@@ -584,11 +638,7 @@ describe('Facturation', () => {
     let draftId, lineId;
 
     before(async () => {
-      const a = await one(
-        `SELECT a.id FROM appointment a
-          WHERE a.status = 'COMPLETED'
-            AND NOT EXISTS (SELECT 1 FROM invoice_line l WHERE l.appointment_id = a.id)
-          LIMIT 1`);
+      const a = await loneCompletedAppointment();
       const inv = await (await api('/api/invoices', { method: 'POST',
         body: { appointmentId: a.id } })).json();
       draftId = inv.id;
@@ -669,11 +719,7 @@ describe('Facturation', () => {
     /* Regression M4 : le trigger de garde levait une exception remontant en
      * HTTP 500, message technique illisible au guichet. */
     test('modifier la ligne d\'une facture emise renvoie 422, pas 500', async () => {
-      const a = await one(
-        `SELECT a.id FROM appointment a
-          WHERE a.status = 'COMPLETED'
-            AND NOT EXISTS (SELECT 1 FROM invoice_line l WHERE l.appointment_id = a.id)
-          LIMIT 1`);
+      const a = await loneCompletedAppointment();
       const inv = await (await api('/api/invoices', { method: 'POST',
         body: { appointmentId: a.id } })).json();
       const line = await one('SELECT id FROM invoice_line WHERE invoice_id = $1', [inv.id]);
@@ -935,6 +981,163 @@ describe('Facturation', () => {
       { method: 'DELETE' });
     assert.equal(r.status, 422);
     assert.equal((await r.json()).error.code, 'INVOICE_NOT_DRAFT');
+  });
+});
+
+/* ====================================================================== */
+describe('Facturation — une seule facture par journée', () => {
+  /*
+   * Un client qui enchaîne deux actes le même jour repartait avec deux
+   * factures. Le second POST /api/invoices doit se rattacher au brouillon
+   * du jour ; une facture déjà émise, elle, ne doit jamais être complétée.
+   *
+   * Aucune heure n'est fixée en dur : l'agenda de démonstration se remplit
+   * au fil des tests, on demande les créneaux réellement libres.
+   */
+  let patient, practitioner, type, first, second, third;
+
+  const completeAppointment = async (id) => {
+    for (const status of ['CONFIRMED', 'CHECKED_IN', 'IN_PROGRESS', 'COMPLETED']) {
+      const r = await api(`/api/appointments/${id}/status`, { method: 'PATCH', body: { status } });
+      assert.equal(r.status, 200, `transition ${status} refusée`);
+    }
+  };
+
+  before(async () => {
+    // Client dédié au nom unique : le doublon serait refusé à la seconde exécution.
+    const r = await api('/api/patients', { method: 'POST', body: {
+      lastName: 'TESTPATIENT', firstName: `Journee${Date.now()}`,
+      birthDate: '1990-03-12', sex: 'F', phoneMobile: '0550 00 11 22', city: 'ALGER' } });
+    patient = await r.json();
+    assert.equal(r.status, 201, JSON.stringify(patient));
+
+    practitioner = await one(`SELECT * FROM practitioner WHERE code = 'DR-003'`);
+    type = await one(
+      `SELECT at.* FROM appointment_type at
+        WHERE at.is_active AND at.default_tariff_id IS NOT NULL
+        ORDER BY at.default_duration_minutes, at.code LIMIT 1`);
+
+    // Deux créneaux distants dans la même journée, puis un troisième un autre jour.
+    const from = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
+    const { slots } = await (await api(
+      `/api/appointments/slots?practitionerId=${practitioner.id}` +
+      `&appointmentTypeId=${type.id}&from=${from}&to=${to}`)).json();
+    const byDay = new Map();
+    for (const s of slots) {
+      const k = s.start.slice(0, 10);
+      if (!byDay.has(k)) byDay.set(k, []);
+      byDay.get(k).push(s);
+    }
+    const day = [...byDay.entries()].find(([, v]) => v.length >= 6);
+    assert.ok(day, 'il faut une journée avec au moins six créneaux libres');
+    const [dayKey, daySlots] = day;
+    const pick = [daySlots[0], daySlots[daySlots.length - 1]];
+    const otherDay = [...byDay.entries()].find(([k, v]) => k !== dayKey && v.length >= 1);
+    assert.ok(otherDay, 'il faut un créneau libre un autre jour');
+
+    const create = async (slot) => {
+      const rr = await api('/api/appointments', { method: 'POST', body: {
+        patientId: patient.id, practitionerId: practitioner.id,
+        appointmentTypeId: type.id, startAt: slot.start, reason: 'Test automatisé' } });
+      const a = await rr.json();
+      assert.equal(rr.status, 201, JSON.stringify(a));
+      return a;
+    };
+    first = await create(pick[0]);
+    second = await create(pick[1]);
+    third = await create(otherDay[1][0]);
+    for (const a of [first, second, third]) await completeAppointment(a.id);
+  });
+
+  test('deux actes le même jour : une seule facture, deux lignes', async () => {
+    const r1 = await api('/api/invoices', { method: 'POST', body: { appointmentId: first.id } });
+    const inv1 = await r1.json();
+    assert.equal(r1.status, 201, JSON.stringify(inv1));
+
+    const r2 = await api('/api/invoices', { method: 'POST', body: { appointmentId: second.id } });
+    const inv2 = await r2.json();
+    assert.equal(r2.status, 200, 'un rattachement n\'est pas une création');
+    assert.equal(inv2.id, inv1.id, 'le second acte devait rejoindre la facture du jour');
+    assert.equal(inv2.status, 'DRAFT');
+
+    const lines = await one(
+      'SELECT count(*)::int AS n, sum(line_total) AS total FROM invoice_line WHERE invoice_id = $1',
+      [inv1.id]);
+    assert.equal(lines.n, 2, 'la facture doit porter les deux actes');
+
+    // Le total et la ventilation suivent (fn_recalc_invoice_totals / _shares).
+    const inv = await one('SELECT * FROM invoice WHERE id = $1', [inv1.id]);
+    assert.equal(Number(inv.total_amount), Number(lines.total));
+    assert.equal(Number(inv.insurance_part) + Number(inv.patient_part), Number(inv.total_amount),
+      'la ventilation assurance / client doit couvrir le total');
+
+    const log = await one(
+      `SELECT action, summary FROM audit_log WHERE entity = 'invoice' AND entity_id = $1
+        ORDER BY occurred_at DESC LIMIT 1`, [inv1.id]);
+    assert.equal(log.action, 'UPDATE', 'le journal doit refléter un rattachement, pas une création');
+    assert.match(log.summary, /facture du jour/i);
+  });
+
+  test('le rapprochement porte sur la date des actes, pas sur la date de saisie', async () => {
+    /* Un brouillon créé aujourd'hui pour une visite d'un AUTRE jour ne doit
+     * jamais absorber un acte du jour courant — et inversement. Ici la
+     * facture du premier jour existe (créée à l'instant) ; l'acte du
+     * troisième rendez-vous, sur une autre date, doit ouvrir un nouveau
+     * document malgré un created_at identique. */
+    const r = await api('/api/invoices', { method: 'POST', body: { appointmentId: third.id } });
+    const inv = await r.json();
+    assert.equal(r.status, 201, JSON.stringify(inv));
+    const dayOne = await one(
+      'SELECT invoice_id FROM invoice_line WHERE appointment_id = $1', [first.id]);
+    assert.notEqual(inv.id, dayOne.invoice_id,
+      'une autre date de visite exige un autre document, même saisi le même jour');
+  });
+
+  test('une facture émise n\'est jamais complétée : nouvel acte → nouveau document', async () => {
+    const invId = (await one(
+      'SELECT invoice_id FROM invoice_line WHERE appointment_id = $1', [first.id])).invoice_id;
+    const issued = await api(`/api/invoices/${invId}/issue`, { method: 'POST' });
+    const issuedBody = await issued.json();
+    assert.ok([200, 201].includes(issued.status), JSON.stringify(issuedBody));
+    assert.equal(issuedBody.status, 'ISSUED');
+
+    // Un acte supplémentaire le même jour : on retire la ligne du second
+    // rendez-vous ? Non — la facture est immuable. On crée donc un nouvel
+    // acte le même jour à partir d'un créneau encore libre.
+    const dayKey = first.start_at.slice(0, 10);
+    const { slots } = await (await api(
+      `/api/appointments/slots?practitionerId=${practitioner.id}` +
+      `&appointmentTypeId=${type.id}&from=${dayKey}&to=${dayKey}`)).json();
+    assert.ok(slots.length > 0, 'il faut encore un créneau libre ce jour-là');
+    const rr = await api('/api/appointments', { method: 'POST', body: {
+      patientId: patient.id, practitionerId: practitioner.id,
+      appointmentTypeId: type.id, startAt: slots[0].start, reason: 'Test automatisé' } });
+    const late = await rr.json();
+    assert.equal(rr.status, 201, JSON.stringify(late));
+    await completeAppointment(late.id);
+
+    const r = await api('/api/invoices', { method: 'POST', body: { appointmentId: late.id } });
+    const inv = await r.json();
+    assert.equal(r.status, 201, JSON.stringify(inv));
+    assert.notEqual(inv.id, invId, 'une facture émise est immuable : nouveau document attendu');
+    assert.equal(inv.status, 'DRAFT');
+
+    const untouched = await one(
+      'SELECT count(*)::int AS n FROM invoice_line WHERE invoice_id = $1', [invId]);
+    assert.equal(untouched.n, 2, 'la facture émise doit rester à deux lignes');
+  });
+
+  test('un examen ajouté en ligne libre met à jour total et ventilation', async () => {
+    const invId = (await one(
+      'SELECT invoice_id FROM invoice_line WHERE appointment_id = $1', [third.id])).invoice_id;
+    const before = await one('SELECT total_amount FROM invoice WHERE id = $1', [invId]);
+    const r = await api(`/api/invoices/${invId}/lines`, { method: 'POST',
+      body: { label: 'Analyses sanguines prescrites', quantity: 1, unitPrice: 2500 } });
+    assert.equal(r.status, 201);
+    const after = await one('SELECT * FROM invoice WHERE id = $1', [invId]);
+    assert.equal(Number(after.total_amount), Number(before.total_amount) + 2500);
+    assert.equal(Number(after.insurance_part) + Number(after.patient_part), Number(after.total_amount));
   });
 });
 

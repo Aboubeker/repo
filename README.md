@@ -46,7 +46,7 @@ accompagne la spécification, afin que l'équipe puisse démarrer sur du code ex
 ```bash
 npm install              # dépendances (pg, react, vite, postgres embarqué)
 npm run setup            # crée le cluster PostgreSQL local (.pgdata, port 55432)
-npm run migrate          # applique les 6 migrations infra/db/001 → 006 dans l'ordre
+npm run migrate          # applique les 7 migrations infra/db/001 → 007 dans l'ordre
 npm run seed             # référentiels + jeu de démonstration
 npm run build:web        # compile l'interface dans apps/web/dist
 npm start                # serveur applicatif sur http://localhost:3001
@@ -55,7 +55,7 @@ npm start                # serveur applicatif sur http://localhost:3001
 Ou en une seule commande : `npm run setup` (= `db:start` + `migrate` + `seed`).
 
 Développement de l'interface : `npm -w @clinirdv/web run dev` (port 5173, proxy `/api` → 3001).
-Tests : `npm test` (**203 tests** répartis en 4 fichiers, `node --test`, base locale requise).
+Tests : `npm test` (**211 tests** répartis en 4 fichiers, `node --test`, base locale requise).
 Cycle de vie de la base : `node scripts/db.mjs start|stop|status|reset`.
 
 Prérequis : **Node.js 22** (le script `--env-file` et la fabrication du paquet SEA en dépendent).
@@ -81,6 +81,27 @@ Le jeu de démonstration comprend 20 patients, ~1 500 rendez-vous et 120 facture
 > catalogue de **clinique d'esthétique** (14 prestations, 3 spécialités). Les types
 > archivés restent visibles dans l'historique mais ne sont plus proposés à la saisie.
 
+### Règles métier à connaître
+
+- **Ouverture 7 jours sur 7.** La clinique reçoit du dimanche au samedi. Les plages
+  horaires sont définies par praticien dans `availability_rule` ; la migration `007`
+  étend au vendredi et au samedi les plages du jour de référence de chaque praticien,
+  et le jeu de démonstration déclare directement les sept jours. Le week-end légal
+  (vendredi, samedi) reste **signalé** dans l'agenda mais n'est plus chômé.
+- **Les jours fériés ne bloquent pas la réservation.** Ils restent affichés dans
+  l'agenda (`FIXED_HOLIDAYS` côté interface, fermetures saisies côté serveur). Seules
+  les fermetures réelles — travaux, congés annuels — saisies dans *Administration →
+  Paramètres → Fermetures de la clinique* bloquent la prise de rendez-vous. Une
+  fermeture dont le libellé contient « férié » ou « fête » est retirée par la migration
+  `007` ; évitez ces mots pour une fermeture réelle.
+- **Une seule facture par journée de visite.** `POST /api/invoices { appointmentId }`
+  rattache l'acte au brouillon existant du même client **pour la même date d'actes**
+  (réponse `200`, journal « Acte ajouté à la facture du jour ») au lieu d'en créer un
+  second (`201`). Une facture émise est immuable : un acte postérieur ouvre un nouveau
+  document. Les examens prescrits s'ajoutent en ligne libre depuis l'écran de facture
+  (`POST /api/invoices/:id/lines`) ; total et ventilation assurance/client sont
+  recalculés par la base.
+
 Formats d'identifiants : patients `P-2026-000001`, rendez-vous `RDV-2026-000001`,
 factures `F-2026-00001`, avoirs `AV-2026-00001`.
 
@@ -98,6 +119,8 @@ factures `F-2026-00001`, avoirs `AV-2026-00001`.
 - `infra/db/005_billing_fixes.sql` — corrections de facturation (ventilation assurance /
   patient, numérotation continue factures et avoirs).
 - `infra/db/006_catalogue_esthetique.sql` — catalogue de clinique d'esthétique.
+- `infra/db/007_ouverture_7j7.sql` — ouverture 7j/7 (plages vendredi et samedi) ; les
+  fermetures « jour férié » ne bloquent plus la réservation.
 - `apps/api/` — API HTTP : authentification (JWT 15 min + refresh rotatif en cookie
   `HttpOnly`), RBAC à 22 permissions, gouvernance (utilisateurs, rôles, thème), patients,
   praticiens et disponibilités, moteur de créneaux, rendez-vous et file d'attente,
@@ -131,7 +154,7 @@ et documentés :
 | Verrouillage agenda | Contrainte GiST seule | `pg_advisory_xact_lock(hashtext('appt:<praticien>'))` **puis** contrainte GiST | Le verrouillage `FOR UPDATE` seul provoquait des interblocages sous forte concurrence |
 
 En cas de divergence, **le schéma réel (`infra/db/001_schema.sql` et les migrations
-`002` → `006`) fait foi** sur le document 02.
+`002` → `007`) fait foi** sur le document 02.
 
 ### Passage en production
 

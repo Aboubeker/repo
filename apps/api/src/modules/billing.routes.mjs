@@ -79,7 +79,7 @@ export function registerBillingRoutes(router) {
       throw badRequest('patientId ou appointmentId est requis.');
 
     return tx(async (c) => {
-      let patientId = d.patientId, practitionerId = null, seedLine = null;
+      let patientId = d.patientId, practitionerId = null, seedLine = null, target = null;
 
       if (d.appointmentId) {
         const { rows: [a] } = await c.query(
@@ -102,12 +102,52 @@ export function registerBillingRoutes(router) {
           seedLine = { appointmentId: a.id, tariffId: a.default_tariff_id,
             label: a.tariff_label || a.label, unitPrice: a.amount ?? 0, vatRate: a.vat_rate ?? 0 };
         }
+
+        /*
+         * Une seule facture par journée de visite.
+         *
+         * Un client qui enchaîne deux consultations le même jour, ou une
+         * consultation suivie d'examens prescrits, ne doit pas repartir
+         * avec deux factures à régler. On cherche donc un BROUILLON du
+         * même client portant déjà un acte de la même date, et l'on s'y
+         * rattache au lieu d'ouvrir un nouveau document.
+         *
+         * Deux règles qu'il ne faut pas relâcher :
+         *  - le rapprochement porte sur la DATE DES ACTES (lower(period)),
+         *    jamais sur invoice.created_at : une visite du 25 peut être
+         *    saisie le 4, et l'erreur inverse est silencieuse ;
+         *  - seul un DRAFT est complété. Une facture émise est une pièce
+         *    comptable immuable ; un acte postérieur ouvre un nouveau
+         *    document.
+         */
+        const { rows: [open] } = await c.query(
+          `SELECT i.id FROM invoice i
+             JOIN invoice_line l ON l.invoice_id = i.id
+             JOIN appointment a2 ON a2.id = l.appointment_id
+            WHERE i.patient_id = $1
+              AND i.status = 'DRAFT'
+              AND lower(a2.period)::date = (
+                    SELECT lower(period)::date FROM appointment WHERE id = $2)
+            ORDER BY i.created_at DESC LIMIT 1
+            FOR UPDATE OF i`, [patientId, a.id]);
+        if (open) target = open.id;
       }
 
-      const { rows: [inv] } = await c.query(
-        `INSERT INTO invoice (patient_id, practitioner_id, notes, created_by)
-         VALUES ($1,$2,$3,$4) RETURNING *`,
-        [patientId, practitionerId, d.notes, ctx.user.sub]);
+      let inv;
+      if (target) {
+        // Rattachement : la ligne s'ajoute au brouillon du jour.
+        ({ rows: [inv] } = await c.query('SELECT * FROM invoice WHERE id = $1', [target]));
+        if (d.notes) {
+          await c.query(
+            `UPDATE invoice SET notes = concat_ws(E'\n', nullif(notes, ''), $2) WHERE id = $1`,
+            [inv.id, d.notes]);
+        }
+      } else {
+        ({ rows: [inv] } = await c.query(
+          `INSERT INTO invoice (patient_id, practitioner_id, notes, created_by)
+           VALUES ($1,$2,$3,$4) RETURNING *`,
+          [patientId, practitionerId, d.notes, ctx.user.sub]));
+      }
 
       if (seedLine) {
         await c.query(
@@ -124,9 +164,17 @@ export function registerBillingRoutes(router) {
        * insurance_part + patient_part inférieur au total.
        */
       await c.query('SELECT fn_recalc_invoice_shares($1)', [inv.id]);
-      await writeAudit(ctx, { action: 'CREATE', entity: 'invoice', entityId: inv.id,
-        summary: 'Facture brouillon créée' });
-      return (await c.query('SELECT * FROM invoice WHERE id = $1', [inv.id])).rows[0];
+      if (target) {
+        await writeAudit(ctx, { action: 'UPDATE', entity: 'invoice', entityId: inv.id,
+          summary: 'Acte ajouté à la facture du jour' });
+      } else {
+        await writeAudit(ctx, { action: 'CREATE', entity: 'invoice', entityId: inv.id,
+          summary: 'Facture brouillon créée' });
+      }
+      const full = (await c.query('SELECT * FROM invoice WHERE id = $1', [inv.id])).rows[0];
+      // 201 seulement quand un document a réellement été créé ; un
+      // rattachement renvoie 200 avec la facture complétée.
+      return target ? { __status: 200, __body: full } : full;
     });
   }, { permission: 'invoice.write' });
 

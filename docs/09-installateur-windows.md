@@ -87,7 +87,7 @@ pas ete alteree.
 
 ### Points techniques resolus
 
-Trois pieges, chacun rendant l'executable inutilisable, ont ete corriges :
+Cinq pieges, chacun rendant l'executable inutilisable ou sa fabrication impossible, ont ete corriges :
 
 1. **`import.meta.url` est vide en CommonJS.** Chaque module calculait sa
    racine en remontant un nombre de niveaux different ; migrations, seed et
@@ -99,6 +99,39 @@ Trois pieges, chacun rendant l'executable inutilisable, ont ete corriges :
    terminait **sans le moindre message**. La detection passe par `node:sea`.
 3. **Le `top-level await` est interdit en CommonJS.** Les appels concernes
    sont encapsules dans des fonctions asynchrones.
+4. **`'C:\Program' is not recognized as an internal or external command.`**
+   La fonction `run()` de `scripts/build-package.mjs` passait `shell: isWin`
+   a tous les outils. `cmd.exe` recevait alors le chemin de Node sans
+   guillemets et le coupait au premier espace — or Node s'installe par
+   defaut dans `C:\Program Files\nodejs`. La fabrication echouait donc sur
+   toute installation Windows standard, alors qu'elle passait sous Linux.
+   Le shell n'est desormais utilise que pour les lanceurs `.cmd` et `.bat`,
+   que Windows ne sait pas executer directement, et les arguments qui lui
+   sont passes sont cites. Un test de `platform.test.mjs` verrouille ce
+   comportement.
+5. **Trois avertissements esbuild « import.meta is not available with the
+   cjs output format »** s'affichaient a chaque fabrication. Ils sont
+   attendus et deja traites par `core/root.mjs` ; ils sont reduits au
+   silence (`--log-override:empty-import-meta=silent`) pour ne pas faire
+   douter d'un paquet pourtant sain.
+
+### Ce que le paquet livre a partir de la migration 007
+
+Les migrations `infra/db/*.sql` sont embarquees et appliquees au premier
+demarrage (`CliniRDV.exe --migrate`). Deux regles metier introduites par la
+migration `007_ouverture_7j7.sql` s'appliquent donc a toute installation :
+
+- **Ouverture sept jours sur sept.** Chaque praticien recoit, pour le
+  vendredi et le samedi, les plages de son jour de reference (le dimanche
+  s'il y travaille, sinon son premier jour ouvre). Les « fermetures »
+  libellees comme un jour ferie sont retirees : les feries restent signales
+  dans l'agenda mais ne bloquent plus la reservation. Les fermetures reelles
+  (travaux, conges) se saisissent dans Parametres et continuent de bloquer.
+- **Une seule facture par journee.** Un client qui enchaine deux actes le
+  meme jour, ou une consultation suivie d'examens prescrits, repart avec un
+  seul document a regler : le second acte rejoint le brouillon du jour. Une
+  facture deja emise n'est jamais completee — un acte posterieur ouvre un
+  nouveau document.
 
 ## Le panneau de controle
 
