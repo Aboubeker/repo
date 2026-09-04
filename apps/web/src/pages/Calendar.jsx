@@ -2,7 +2,8 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { api } from '../api.js';
 import {
   Spinner, Badge, STATUS, fmtTime, fmtDate, fmtName, age, can, Drawer, Modal,
-  Field, ErrorAlert, toISODate, startOfWeek, useToast,
+  Field, ErrorAlert, toISODate, startOfWeekDZ, isWeekend, fixedHolidayFor,
+  useToast,
 } from '../lib.jsx';
 
 const DAY_START = 8, DAY_END = 19, PX_PER_MIN = 1.1;
@@ -23,11 +24,49 @@ export default function Calendar({ user, go, onNewAppt }) {
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
 
+  /*
+   * Semaine complète de 7 jours, du dimanche au samedi.
+   *
+   * L'agenda n'affichait que 5 jours à partir du lundi : le week-end
+   * algérien (vendredi-samedi, décret 09-234) était donc invisible, alors
+   * que le samedi est un jour de forte activité en clinique. Le dimanche,
+   * jour ouvré plein ici, manquait lui aussi. On part de startOfWeekDZ
+   * (dimanche) et on parcourt les 7 jours.
+   *
+   * On ajoute un jour de calendrier plutôt que 864e5 ms : sur un changement
+   * d'heure, une journée ne fait pas 24 h et les colonnes dériveraient.
+   */
   const days = useMemo(() => {
     if (view === 'day') return [new Date(anchor)];
-    const s = startOfWeek(anchor);
-    return Array.from({ length: 5 }, (_, i) => new Date(s.getTime() + i * 864e5));
+    const s = startOfWeekDZ(anchor);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(s);
+      d.setDate(s.getDate() + i);
+      return d;
+    });
   }, [view, anchor]);
+
+  /* Fermetures saisies par l'administrateur (fêtes religieuses, ponts). */
+  const [closures, setClosures] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    api.closures()
+      .then((r) => { if (alive) setClosures(r.items || []); })
+      // Une fermeture non chargée ne doit pas priver l'utilisateur de son
+      // agenda : on dégrade en silence vers les seuls fériés à date fixe.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  /** Libellé du jour chômé, ou null si le jour est ouvré. */
+  const closureFor = useCallback((d) => {
+    const fixed = fixedHolidayFor(d);
+    if (fixed) return fixed.label;
+    const k = toISODate(d);
+    const hit = closures.find((c) => toISODate(new Date(c.start_at)) <= k
+                                  && k < toISODate(new Date(c.end_at)));
+    return hit ? hit.label : null;
+  }, [closures]);
 
   /*
    * Un praticien ne voit que son propre agenda.
@@ -136,11 +175,15 @@ export default function Calendar({ user, go, onNewAppt }) {
               <div className="cal-head" />
               {days.map((d) => {
                 const k = toISODate(d);
+                const holiday = closureFor(d);
                 return (
-                  <div key={k} className={`cal-head ${k === todayKey ? 'today' : ''}`}>
+                  <div key={k} className={`cal-head ${k === todayKey ? 'today' : ''}`
+                    + (holiday ? ' holiday' : isWeekend(d) ? ' weekend' : '')}>
                     <div className="dow">{d.toLocaleDateString('fr-FR', { weekday: 'short' })}</div>
                     <div className="dnum">{d.getDate()}</div>
-                    <div className="small muted">{(byDay[k] || []).length} RDV</div>
+                    {holiday
+                      ? <div className="small muted" title={holiday}>{holiday}</div>
+                      : <div className="small muted">{(byDay[k] || []).length} RDV</div>}
                   </div>
                 );
               })}
@@ -157,7 +200,9 @@ export default function Calendar({ user, go, onNewAppt }) {
               {days.map((d) => {
                 const k = toISODate(d);
                 return (
-                  <div key={k} className="cal-col" style={{ position: 'relative', height: gridH }}>
+                  <div key={k}
+                       className={`cal-col${isWeekend(d) || closureFor(d) ? ' weekend' : ''}`}
+                       style={{ position: 'relative', height: gridH }}>
                     {hours.map((h) => (
                       <div key={h} className="cal-slot hour"
                            style={{ height: 60 * PX_PER_MIN }}

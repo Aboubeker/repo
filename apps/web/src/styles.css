@@ -609,6 +609,11 @@ html[data-density="compact"] .field { margin-bottom: var(--sp-2); }
   transparent, transparent 9px, rgba(0,0,0,.018) 9px, rgba(0,0,0,.018) 18px); }
 .cal-head.holiday { background: var(--danger-light); }
 .cal-head.holiday .dnum { color: var(--danger); }
+/* Le nom d'une fête ne doit pas elargir la colonne ni passer sur deux lignes :
+   l'en-tete resterait desaligne des colonnes horaires. Le titre HTML donne le
+   libelle complet au survol. */
+.cal-head.holiday .small { white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; color: var(--danger); }
 
 /* --- Identifiants officiels -------------------------------------------- */
 .mono-id { font-family: "Cascadia Mono", Consolas, "SF Mono", monospace;

@@ -451,3 +451,50 @@ describe('Facturation — impayés et édition des lignes', () => {
     assert.match(billing(), /api\.addInvoiceLine\(/);
   });
 });
+
+/*
+ * L'agenda affichait cinq jours a partir du lundi : le week-end algerien
+ * (vendredi-samedi) etait invisible et le dimanche, jour ouvre plein, absent.
+ * Ces contrats verrouillent la semaine complete et le marquage des jours
+ * chomes.
+ */
+describe('Agenda — semaine algerienne complete', () => {
+  const cal = () => read('pages/Calendar.jsx');
+
+  test('la semaine affiche sept jours, a partir du dimanche', () => {
+    const src = cal();
+    assert.match(src, /Array\.from\(\{ length: 7 \}/,
+      'la grille doit couvrir les sept jours de la semaine');
+    assert.match(src, /startOfWeekDZ\(anchor\)/,
+      'la semaine doit commencer le dimanche (startOfWeekDZ)');
+    assert.doesNotMatch(src, /startOfWeek\(anchor\)/,
+      'startOfWeek() demarre le lundi : inadapte au calendrier algerien');
+  });
+
+  test('vendredi et samedi sont signales comme chomes', () => {
+    const src = cal();
+    assert.match(src, /isWeekend\(d\)/,
+      'le week-end doit etre determine par isWeekend, pas en dur');
+    assert.match(src, /' weekend'/,
+      'les jours de week-end doivent porter la classe CSS weekend');
+  });
+
+  test('les jours feries sont affiches avec leur libelle', () => {
+    const src = cal();
+    assert.match(src, /fixedHolidayFor/,
+      'les fetes a date fixe doivent etre prises en compte');
+    assert.match(src, /api\.closures\(\)/,
+      'les fermetures saisies par l\'administrateur doivent etre chargees');
+    assert.match(src, /' holiday'/,
+      'un jour ferie doit porter la classe CSS holiday');
+    assert.ok(read('api.js').includes('closures:'),
+      'api.closures() doit exister');
+  });
+
+  test('les styles des jours chomes existent', () => {
+    const css = read('styles.css');
+    for (const sel of ['.cal-head.weekend', '.cal-col.weekend', '.cal-head.holiday']) {
+      assert.ok(css.includes(sel), `${sel} doit etre defini`);
+    }
+  });
+});

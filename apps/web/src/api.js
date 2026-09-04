@@ -214,6 +214,11 @@ export const api = {
   updateTheme: (b) => request('/api/theme', { method: 'PUT', body: b }),
   resetTheme: () => request('/api/theme/reset', { method: 'POST', body: {} }),
 
+  // --- Fermetures et jours fériés ----------------------------------------
+  // Les fêtes religieuses suivent le calendrier hégirien : elles sont saisies
+  // par l'administrateur et ne peuvent pas être calculées à l'avance.
+  closures: () => request('/api/closures'),
+
   // --- Catalogue : actes, durées et tarifs -------------------------------
   catalogue: () => request('/api/catalogue'),
   createTariff: (b) => request('/api/tariffs', { method: 'POST', body: b }),
