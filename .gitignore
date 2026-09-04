@@ -1,0 +1,12 @@
+node_modules/
+.pgdata/
+.pgdata.log
+.pgpass.tmp
+.env
+dist/
+storage/
+*.log
+
+# Paquet d'installation genere par scripts/build-package.mjs
+release/
+*.zip

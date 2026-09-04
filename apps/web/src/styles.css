@@ -1,0 +1,936 @@
+/* CliniRDV — feuille de style unique, aucune ressource externe (police système). */
+
+:root {
+  /* Teinte primaire : vert-sarcelle profond. Le bleu clinique générique se
+     confond avec les interfaces bancaires ; ce vert reprend la couleur
+     dominante de la signalétique de santé algérienne tout en gardant un
+     contraste AA sur blanc (7.1:1). */
+  --primary:        #0f766e;
+  --primary-dark:   #115e59;
+  --primary-darker: #134e4a;
+  --primary-light:  #ccfbf1;
+  --primary-soft:   #f0fdfa;
+
+  /* Neutres légèrement chauds : moins clinique et moins fatigant qu'un gris
+     bleuté sur des postes utilisés huit heures par jour. */
+  --bg:            #f6f7f6;
+  --surface:       #ffffff;
+  --surface-2:     #f7f8f8;
+  --surface-3:     #eef0ef;
+  --border:        #e3e6e5;
+  --border-strong: #c8cecc;
+  --text:          #16211f;
+  --text-2:        #3d4b48;
+  --text-muted:    #6b7b77;
+
+  /* Sémantique. L'orange est assombri pour rester lisible sur fond clair. */
+  --success:       #15803d;
+  --success-light: #dcfce7;
+  --warning:       #b45309;
+  --warning-light: #fef3c7;
+  --danger:        #b91c1c;
+  --danger-light:  #fee2e2;
+  --info:          #0369a1;
+  --info-light:    #e0f2fe;
+  --purple:        #6d28d9;
+
+  /* Échelle typographique : un seul pas de 2px, au lieu des 11.5/12.5/13.5px
+     empilés au fil de l'eau dans la version précédente. */
+  --fs-xs:  11px;
+  --fs-sm:  12px;
+  --fs-base:14px;
+  --fs-md:  16px;
+  --fs-lg:  19px;
+  --fs-xl:  24px;
+  --fs-2xl: 30px;
+
+  /* Espacement sur une base de 4px. */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+
+  --radius-sm: 6px;
+  --radius:    9px;
+  --radius-lg: 14px;
+
+  /* Ombres douces à teinte verte plutôt que noire : évite l'effet « sale ». */
+  --shadow-xs: 0 1px 2px rgba(22, 33, 31, .05);
+  --shadow:    0 1px 3px rgba(22, 33, 31, .07), 0 1px 2px rgba(22, 33, 31, .04);
+  --shadow-md: 0 4px 12px rgba(22, 33, 31, .08);
+  --shadow-lg: 0 12px 28px rgba(22, 33, 31, .13);
+
+  --sidebar-w: 236px;
+  --focus-ring: 0 0 0 3px rgba(15, 118, 110, .22);
+
+  /* Points d'accroche du thème serveur (onglet Administration › Apparence).
+     applyTheme() surcharge ces variables sur <html> ; les valeurs ci-dessous
+     restent le repli lorsque le serveur est injoignable. */
+  --accent:      #5eead4;
+  --sidebar-bg:  #14201e;
+  --font-scale:  1;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  /* Segoe UI en tête : c'est la police système des postes Windows visés, et
+     elle rend correctement les caractères arabes des noms de patients.
+     Aucune police distante — l'application reste utilisable hors ligne. */
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto,
+               "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  /* calc() plutôt qu'un font-size sur <html> : les tailles en px du reste de
+     la feuille suivent l'échelle sans que rien d'autre soit à retoucher. */
+  font-size: calc(var(--fs-base) * var(--font-scale));
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--primary); text-decoration: none; }
+
+/* ------------------------------ Connexion ------------------------------ */
+.login-page {
+  min-height: 100vh; display: grid; place-items: center;
+  background: linear-gradient(150deg, var(--primary-darker) 0%, var(--primary) 55%, #2dd4bf 130%);
+  padding: 24px;
+}
+.login-card {
+  width: 100%; max-width: 400px; background: var(--surface);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 32px;
+}
+.login-logo {
+  width: 56px; height: 56px; border-radius: 14px; margin: 0 auto 16px;
+  background: var(--primary); color: #fff; display: grid; place-items: center;
+  font-size: 26px; font-weight: 700;
+}
+.login-logo-img {
+  display: block; max-width: 180px; max-height: 64px; margin: 0 auto 16px;
+  object-fit: contain;
+}
+.login-card h1 { font-size: 21px; text-align: center; margin-bottom: 4px; }
+/* Message libre de la clinique (horaires, astreinte…) posé par l'administrateur. */
+.login-message {
+  text-align: center; font-size: 12.5px; color: var(--text-2);
+  background: var(--primary-soft); border: 1px solid var(--primary-light);
+  border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 18px;
+}
+.login-card .sub { text-align: center; color: var(--text-muted); margin-bottom: 24px; font-size: 13px; }
+.login-footer {
+  margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border);
+  font-size: 11.5px; color: var(--text-muted); text-align: center; line-height: 1.7;
+}
+.demo-accounts {
+  margin-top: 14px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px; font-size: 12px;
+}
+.demo-accounts b { display: block; margin-bottom: 6px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
+.demo-accounts button {
+  display: block; width: 100%; text-align: left; padding: 5px 8px; border: 0;
+  background: none; border-radius: 5px; cursor: pointer; font-size: 12.5px;
+}
+.demo-accounts button:hover { background: var(--primary-light); }
+
+/* -------------------------------- Layout ------------------------------- */
+.app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+
+.sidebar {
+  background: var(--sidebar-bg); color: #b7c4c1; display: flex; flex-direction: column;
+  position: sticky; top: 0; height: 100vh;
+}
+.sidebar-brand {
+  padding: var(--sp-4) 18px; border-bottom: 1px solid #22322f;
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar-brand .mark {
+  width: 32px; height: 32px; border-radius: 8px; background: var(--primary);
+  color: #fff; display: grid; place-items: center; font-weight: 700; flex: none;
+}
+/* Logo importé : contenu dans le même gabarit que la pastille « ✚ » par
+   défaut, quelles que soient les proportions du fichier fourni. */
+.sidebar-brand .mark-img {
+  width: 32px; height: 32px; border-radius: 8px; flex: none;
+  object-fit: contain; background: #fff; padding: 2px;
+}
+.sidebar-brand div strong { display: block; color: #fff; font-size: 14px; }
+.sidebar-brand div span { font-size: var(--fs-xs); color: #7d8f8b; }
+
+.sidebar-nav { padding: 10px 8px; flex: 1; overflow-y: auto; }
+.sidebar-nav button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
+  border: 0; background: none; color: #cbd5e1; border-radius: 6px;
+  cursor: pointer; font-size: 13.5px; margin-bottom: 2px; text-align: left;
+}
+.sidebar-nav button:hover { background: #22322f; color: #fff; }
+.sidebar-nav button.active {
+  background: var(--primary); color: #fff; font-weight: 500;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.sidebar-nav .ico { width: 18px; text-align: center; font-size: 15px; flex: none; }
+.sidebar-nav .group {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px;
+  color: #5d706c; padding: var(--sp-3) 10px 5px;
+}
+.sidebar-foot { padding: var(--sp-3); border-top: 1px solid #22322f; font-size: 11px; color: #64748b; }
+.sidebar-foot .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: #22c55e; margin-right: 6px; }
+
+.main { display: flex; flex-direction: column; min-width: 0; }
+
+.topbar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 10px 20px; display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 20;
+}
+.topbar h2 { font-size: var(--fs-lg); font-weight: 620; letter-spacing: -.02em; }
+.topbar .spacer { flex: 1; }
+.search-global { position: relative; width: 320px; }
+.search-global input { width: 100%; padding-left: 32px; }
+.search-global .icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-muted); pointer-events: none; }
+.user-chip { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--primary-light);
+  color: var(--primary-darker); display: grid; place-items: center; font-weight: 600; font-size: 12px;
+}
+
+.content { padding: 20px; flex: 1; }
+
+/* ------------------------------ Composants ----------------------------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-xs);
+}
+.card-head {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
+}
+.card-head h3 { font-size: var(--fs-base); font-weight: 600; letter-spacing: -.01em; }
+.card-head .spacer { flex: 1; }
+.card-body { padding: 16px; }
+.card-body.tight { padding: 0; }
+
+.grid { display: grid; gap: 16px; }
+.grid.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.grid.sidebar-right { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+@media (max-width: 1200px) {
+  .grid.c4, .grid.c5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.sidebar-right, .grid.c3 { grid-template-columns: minmax(0, 1fr); }
+}
+
+.stat { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--sp-4); box-shadow: var(--shadow-xs); }
+.stat .label { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: .4px; margin-bottom: 6px; }
+.stat .value { font-size: var(--fs-2xl); font-weight: 650; line-height: 1.05;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stat .hint { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.stat.accent-blue   { border-left: 3px solid var(--primary); }
+.stat.accent-teal   { border-left: 3px solid var(--primary); }
+.stat.accent-green  { border-left: 3px solid var(--success); }
+.stat.accent-orange { border-left: 3px solid var(--warning); }
+.stat.accent-red    { border-left: 3px solid var(--danger); }
+.stat.accent-purple { border-left: 3px solid var(--purple); }
+
+button.btn {
+  padding: 9px 15px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--surface);
+  cursor: pointer; font-size: 13.5px; font-weight: 550; min-height: 38px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  white-space: nowrap; transition: background .12s, border-color .12s, box-shadow .12s;
+}
+button.btn:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, .sidebar-nav button:focus-visible, .tabs button:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 1px;
+}
+button.btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--text-muted); }
+button.btn:disabled { opacity: .5; cursor: not-allowed; }
+button.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff;
+  box-shadow: var(--shadow-xs); }
+button.btn.primary:hover:not(:disabled) { background: var(--primary-dark); }
+button.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+button.btn.success { background: var(--success); border-color: var(--success); color: #fff; }
+button.btn.sm { padding: 5px 10px; font-size: var(--fs-sm); min-height: 30px; }
+
+/* Colonne d'actions : les boutons d'une même ligne restent sur un seul rang
+   plutôt que de se replier et de faire varier la hauteur des lignes. */
+.nowrap { white-space: nowrap; }
+td.nowrap > .btn + .btn { margin-left: 4px; }
+button.btn.ghost { border-color: transparent; background: none; color: var(--text); }
+button.btn.ghost:hover { background: var(--surface-2); }
+
+/* --- Variantes discrètes colorées ---------------------------------------
+ *
+ * « ghost » et « danger » se combinent (bouton Supprimer / Retirer d'une
+ * ligne de tableau). À spécificité égale, « ghost » l'emportait car déclaré
+ * plus bas : il remettait le fond à « none » sans réinitialiser la couleur
+ * du texte laissée à #fff par « danger ». Résultat : texte blanc sur fond
+ * blanc, bouton invisible mais bel et bien cliquable — quatre actions
+ * destructrices étaient dans ce cas.
+ *
+ * La teinte est portée par le TEXTE, pas par le fond : c'est le principe
+ * d'un bouton discret. Le fond n'apparaît qu'au survol.
+ */
+button.btn.ghost.danger  { background: none; color: var(--danger); }
+button.btn.ghost.primary { background: none; color: var(--primary-dark); }
+button.btn.ghost.success { background: none; color: var(--success); }
+
+button.btn.ghost.danger:hover:not(:disabled)  { background: var(--danger-light); }
+button.btn.ghost.primary:hover:not(:disabled) { background: var(--primary-light); }
+button.btn.ghost.success:hover:not(:disabled) { background: var(--success-light); }
+
+/* Le survol générique de .ghost ne doit pas écraser la teinte ci-dessus :
+   sans cela, le fond gris reprendrait le dessus au passage de la souris. */
+button.btn.ghost.danger:hover, button.btn.ghost.primary:hover,
+button.btn.ghost.success:hover { box-shadow: none; }
+
+input, select, textarea {
+  padding: 9px 11px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); background: var(--surface); width: 100%;
+  outline: none; min-height: 38px; transition: border-color .12s, box-shadow .12s;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary); box-shadow: var(--focus-ring);
+}
+/*
+ * Cases à cocher et boutons radio.
+ *
+ * La règle générique ci-dessus vise les champs de saisie, mais `input` la
+ * porte aussi aux cases : elles héritaient de `width: 100%`, d'un remplissage
+ * de 9px et d'une hauteur minimale de 38px, ce qui les affichait démesurées —
+ * criant dans la matrice des permissions, où elles se comptent par dizaines.
+ * On les ramène à leur gabarit natif.
+ */
+input[type="checkbox"], input[type="radio"] {
+  width: 16px; height: 16px; min-height: 0; padding: 0; flex: none;
+  margin: 0; accent-color: var(--primary); cursor: pointer;
+  border-radius: 3px; vertical-align: middle;
+}
+input[type="checkbox"]:focus, input[type="radio"]:focus { box-shadow: var(--focus-ring); }
+
+/* Le sélecteur de couleur : une pastille, pas un champ pleine largeur. */
+input[type="color"] { padding: 2px; min-height: 32px; cursor: pointer; }
+
+/* Le sélecteur de fichier n'a pas besoin de la bordure d'un champ de saisie. */
+input[type="file"] {
+  border: 0; padding: 0; min-height: 0; background: none; font-size: var(--fs-sm);
+}
+
+/* Une case suivie de son libellé : alignement et curseur cohérents. */
+label.check {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 0;
+  cursor: pointer; font-weight: 400;
+}
+
+input::placeholder, textarea::placeholder { color: #9aa8a4; }
+input.error, select.error { border-color: var(--danger); }
+label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 4px; color: #334155; }
+.field { margin-bottom: 13px; }
+.field .err { color: var(--danger); font-size: 12px; margin-top: 3px; }
+.field .help { color: var(--text-muted); font-size: 11.5px; margin-top: 3px; }
+.row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 0; }
+.row > .none { flex: none; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  text-align: left; padding: 9px 12px; background: var(--surface-2);
+  border-bottom: 1px solid var(--border); font-weight: 600; font-size: 11.5px;
+  text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted);
+  position: sticky; top: 0; z-index: 1;
+}
+td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr.clickable { cursor: pointer; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 500; white-space: nowrap;
+}
+.badge.gray   { background: #f1f5f9; color: #475569; }
+.badge.blue   { background: var(--primary-light); color: var(--primary-dark); }
+.badge.green  { background: var(--success-light); color: #065f46; }
+.badge.orange { background: var(--warning-light); color: #92400e; }
+.badge.red    { background: var(--danger-light); color: #991b1b; }
+.badge.purple { background: #ede9fe; color: #5b21b6; }
+
+.alert {
+  padding: 10px 14px; border-radius: var(--radius); font-size: 13px;
+  display: flex; align-items: flex-start; gap: 9px; margin-bottom: 14px;
+}
+.alert.error   { background: var(--danger-light); color: #991b1b; border: 1px solid #fecaca; }
+.alert.warning { background: var(--warning-light); color: #92400e; border: 1px solid #fde68a; }
+.alert.success { background: var(--success-light); color: #065f46; border: 1px solid #a7f3d0; }
+.alert.info    { background: var(--primary-light); color: var(--primary-dark); border: 1px solid #bfdbfe; }
+
+.critical-banner {
+  background: var(--danger); color: #fff; padding: 10px 16px; border-radius: var(--radius);
+  font-weight: 500; margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+}
+
+.muted { color: var(--text-muted); }
+.small { font-size: 12px; }
+.empty { padding: 40px 20px; text-align: center; color: var(--text-muted); }
+.empty .big { font-size: 30px; margin-bottom: 8px; opacity: .4; }
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+  overflow-x: auto; }
+.tabs button {
+  padding: 8px 14px; border: 0; background: none; cursor: pointer; font-size: 13.5px;
+  border-bottom: 2px solid transparent; color: var(--text-muted); white-space: nowrap;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 500; }
+
+/* -------------------------------- Agenda -------------------------------- */
+.calendar { overflow: auto; max-height: calc(100vh - 210px); }
+.cal-grid { display: grid; min-width: 900px; position: relative; }
+.cal-head {
+  position: sticky; top: 0; background: var(--surface); z-index: 3;
+  border-bottom: 2px solid var(--border-strong); padding: 8px 6px; text-align: center;
+}
+.cal-head .dow { font-size: 11px; text-transform: uppercase; color: var(--text-muted);
+  letter-spacing: .4px; }
+.cal-head .dnum { font-size: 17px; font-weight: 600; }
+.cal-head.today .dnum { color: var(--primary); }
+.cal-head.today { background: var(--primary-light); }
+.cal-time {
+  font-size: 11px; color: var(--text-muted); text-align: right; padding: 0 8px 0 4px;
+  border-right: 1px solid var(--border); position: sticky; left: 0;
+  background: var(--surface); z-index: 2;
+}
+.cal-col { border-right: 1px solid var(--border); position: relative; }
+.cal-slot { border-bottom: 1px solid #f1f5f9; }
+.cal-slot.hour { border-bottom-color: var(--border); }
+.cal-event {
+  position: absolute; left: 2px; right: 2px; border-radius: 4px; padding: 2px 5px;
+  font-size: 11px; overflow: hidden; cursor: pointer; border-left: 3px solid;
+  background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.08); z-index: 1;
+}
+.cal-event:hover { z-index: 5; box-shadow: var(--shadow-lg); }
+.cal-event .t { font-weight: 600; }
+.cal-event .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger);
+  z-index: 4; pointer-events: none; }
+.cal-now::before { content: ''; position: absolute; left: -4px; top: -3px; width: 8px;
+  height: 8px; border-radius: 50%; background: var(--danger); }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted);
+  padding: 8px 16px; border-top: 1px solid var(--border); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* ------------------------------- File d'attente ------------------------- */
+.queue { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1100px) { .queue { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.queue-col { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); display: flex; flex-direction: column; }
+.queue-col h4 {
+  padding: 10px 13px; border-bottom: 1px solid var(--border); font-size: 12.5px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.queue-col .items { padding: 8px; display: flex; flex-direction: column; gap: 7px;
+  max-height: 60vh; overflow-y: auto; }
+.queue-card {
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  background: var(--surface-2); border-left: 3px solid var(--border-strong);
+}
+.queue-card.late { border-left-color: var(--danger); }
+.queue-card .h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.queue-card .nm { font-weight: 600; font-size: 13px; }
+.queue-card .tm { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.queue-card .meta { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+/* Les actions se replient au lieu de déborder de la carte.
+ *
+ * Une colonne de file fait ~216 px utiles, alors que la rangée « Enregistrer
+ * l'arrivée / Absent / Détail / Dossier » en réclame ~355. Sans « flex-wrap »,
+ * et les boutons étant en « white-space: nowrap », ils ne pouvaient ni se
+ * replier ni se comprimer : ils sortaient du cadre et devenaient illisibles,
+ * voire incliquables. L'action principale occupe donc sa propre ligne, les
+ * actions secondaires se partagent la suivante. */
+.queue-card .acts {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px;
+}
+.queue-card .acts > .btn {
+  flex: 1 1 auto; min-width: 0;          /* autorise la compression */
+}
+/* « Enregistrer l'arrivée » est trop long pour partager une ligne. */
+.queue-card .acts > .btn.primary { flex-basis: 100%; }
+
+/* --------------------------------- Modale ------------------------------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, .5); z-index: 100;
+  display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px;
+  overflow-y: auto;
+}
+.modal {
+  background: var(--surface); border-radius: 10px; box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 560px; max-height: calc(100vh - 80px); display: flex;
+  flex-direction: column;
+}
+.modal.wide { max-width: 860px; }
+.modal-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; }
+.modal-head h3 { font-size: 16px; flex: 1; }
+.modal-body { padding: 18px; overflow-y: auto; }
+.modal-foot { padding: 13px 18px; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 8px; background: var(--surface-2);
+  border-radius: 0 0 10px 10px; }
+
+/* --------------------------- Panneau latéral ---------------------------- */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 90; }
+.drawer {
+  position: fixed; right: 0; top: 0; bottom: 0; width: 420px; max-width: 100vw;
+  background: var(--surface); box-shadow: var(--shadow-lg); z-index: 91;
+  display: flex; flex-direction: column;
+}
+.drawer-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; }
+.drawer-body { padding: 18px; overflow-y: auto; flex: 1; }
+.drawer-foot { padding: 13px 18px; border-top: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* --------------------------------- Divers ------------------------------- */
+.dl { display: grid; grid-template-columns: 130px 1fr; gap: 7px 12px; font-size: 13px; }
+.dl dt { color: var(--text-muted); }
+.dl dd { font-weight: 500; }
+
+.bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--primary); border-radius: 4px; }
+
+.slot-day { margin-bottom: 12px; }
+.slot-day .d { font-size: 12.5px; font-weight: 600; margin-bottom: 6px;
+  text-transform: capitalize; }
+.slot-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-btn {
+  padding: 5px 11px; border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--surface); cursor: pointer; font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.slot-btn:hover { border-color: var(--primary); background: var(--primary-light); }
+.slot-btn.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.spinner {
+  width: 18px; height: 18px; border: 2px solid var(--border);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin .7s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.toast-wrap { position: fixed; bottom: 20px; right: 20px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px; }
+.toast {
+  background: #0f172a; color: #fff; padding: 11px 16px; border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); font-size: 13px; max-width: 400px;
+  display: flex; align-items: flex-start; gap: 9px;
+  animation: slidein .2s ease;
+}
+.toast.error { background: var(--danger); }
+.toast.success { background: var(--success); }
+@keyframes slidein { from { transform: translateX(20px); opacity: 0; } }
+
+/* Règles d'impression : regroupées plus bas, avec le document facture.
+   Deux blocs @media print séparés se contredisaient (celui-ci masquait
+   .btn et laissait .app en grille, l'autre remettait .app en bloc). */
+
+/* Pieds de tableau (totaux de facture) */
+tfoot td { border-top: 1px solid var(--border); font-size: 12.5px; }
+tfoot tr:last-child td { border-top: 2px solid var(--text); }
+
+/* ======================================================================
+   Ajouts : densité, en-têtes de page, santé système, adaptation locale
+   ====================================================================== */
+
+/* --- Mode compact -----------------------------------------------------
+   Les réceptionnistes travaillent souvent sur des écrans 1366×768 où seules
+   6 lignes de tableau sont visibles. Le mode compact en affiche 11 sans
+   changer la taille de police du corps de texte. Piloté par un attribut sur
+   <html>, mémorisé dans localStorage. */
+html[data-density="compact"] td { padding: 5px var(--sp-3); }
+html[data-density="compact"] th { padding: 6px var(--sp-3); }
+html[data-density="compact"] .card-body { padding: var(--sp-3); }
+html[data-density="compact"] .stat { padding: 10px var(--sp-3); }
+html[data-density="compact"] .stat .value { font-size: var(--fs-xl); }
+html[data-density="compact"] .content { padding: var(--sp-3); }
+html[data-density="compact"] .field { margin-bottom: var(--sp-2); }
+
+/* --- En-tête de page ---------------------------------------------------
+   Remplace les titres bricolés en style inline dans chaque page. */
+.page-head { display: flex; align-items: flex-start; gap: var(--sp-4);
+  margin-bottom: var(--sp-4); flex-wrap: wrap; }
+.page-head .ph-main { flex: 1; min-width: 240px; }
+.page-head h1 { font-size: var(--fs-lg); font-weight: 620; letter-spacing: -.02em; }
+.page-head .ph-sub { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+.page-head .ph-actions { display: flex; gap: var(--sp-2); align-items: center;
+  flex-wrap: wrap; }
+
+/* --- Fil d'ariane ------------------------------------------------------ */
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm);
+  color: var(--text-muted); margin-bottom: var(--sp-2); }
+.crumbs button { border: 0; background: none; padding: 0; cursor: pointer;
+  color: var(--primary); font-size: inherit; }
+.crumbs button:hover { text-decoration: underline; }
+
+/* --- Indicateurs de santé (Administration) ----------------------------- */
+.health-grid { display: grid; gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); }
+.health-item { display: flex; gap: 11px; align-items: flex-start;
+  padding: var(--sp-3) var(--sp-4); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.health-item .hdot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px;
+  flex: none; }
+.health-item.ok   .hdot { background: var(--success); }
+.health-item.warn .hdot { background: var(--warning); }
+.health-item.bad  .hdot { background: var(--danger);
+  animation: pulse 1.6s ease-in-out infinite; }
+.health-item .ht { font-weight: 600; font-size: 13px; }
+.health-item .hv { color: var(--text-muted); font-size: var(--fs-sm); margin-top: 1px; }
+.health-item .hfix { margin-top: 5px; font-size: var(--fs-sm); }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* --- Bandeau d'action requise ------------------------------------------ */
+.action-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px var(--sp-4); border-radius: var(--radius); margin-bottom: var(--sp-3);
+  background: var(--warning-light); border: 1px solid #fcd34d; color: #7c2d12;
+  font-size: 13px; }
+.action-strip.danger { background: var(--danger-light); border-color: #fca5a5;
+  color: #7f1d1d; }
+.action-strip .spacer { flex: 1; }
+
+/* --- Week-end algérien (vendredi / samedi) ------------------------------ */
+.cal-head.weekend { background: var(--surface-3); }
+.cal-head.weekend .dow, .cal-head.weekend .dnum { color: var(--text-muted); }
+.cal-col.weekend { background: repeating-linear-gradient(45deg,
+  transparent, transparent 9px, rgba(0,0,0,.018) 9px, rgba(0,0,0,.018) 18px); }
+.cal-head.holiday { background: var(--danger-light); }
+.cal-head.holiday .dnum { color: var(--danger); }
+/* Le nom d'une fête ne doit pas elargir la colonne ni passer sur deux lignes :
+   l'en-tete resterait desaligne des colonnes horaires. Le titre HTML donne le
+   libelle complet au survol. */
+.cal-head.holiday .small { white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; color: var(--danger); }
+
+/* --- Identifiants officiels -------------------------------------------- */
+.mono-id { font-family: "Cascadia Mono", Consolas, "SF Mono", monospace;
+  font-size: var(--fs-sm); letter-spacing: .02em; }
+/* Les noms arabes saisis en caractères arabes doivent s'afficher de droite à
+   gauche même au milieu d'un tableau en français. */
+.rtl-aware { unicode-bidi: plaintext; }
+
+/* --- Raccourcis clavier visibles --------------------------------------- */
+kbd { font-family: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 4px;
+  background: rgba(255,255,255,.22); border: 1px solid rgba(255,255,255,.3);
+  margin-left: 2px; }
+.btn:not(.primary):not(.danger):not(.success) kbd {
+  background: var(--surface-3); border-color: var(--border); color: var(--text-muted); }
+
+/* --- Accessibilité ------------------------------------------------------ */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Respect de « réduire les animations » (Windows : Paramètres → Accessibilité
+   → Effets visuels). Les boucles infinies sont explicitement arrêtées : les
+   neutraliser par une durée quasi nulle les ferait au contraire tourner à
+   très haute fréquence, ce qui est pire que l'animation d'origine. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .login-page { animation: none !important; }
+  .top-progress > i, .skeleton, .cal-now::before, .health-item.bad .hdot {
+    animation: none !important;
+  }
+  .skeleton { background: var(--surface-3); }
+}
+
+/* --- Impression : factures et ordonnances -------------------------------
+ *
+ * La facture s'affiche dans une modale, donc dans « .overlay » — que cette
+ * feuille masquait. Le bouton Imprimer produisait une page vide. On masque
+ * désormais l'application entière et on ne laisse que le document dédié
+ * (.print-doc), qui porte l'en-tête clinique et les mentions légales.
+ */
+.print-doc { display: none; }
+
+@media print {
+  /*
+   * Règle binaire, sans sélecteur conditionnel.
+   *
+   * Le document imprimable est monté hors de l'application, directement
+   * sous <body> (#print-root). Il suffit donc de masquer l'application et
+   * de montrer le document. La version précédente s'appuyait sur « :has() »
+   * pour trier les frères de la modale : un navigateur qui ignore « :has() »
+   * invalidait la règle et imprimait la LISTE COMPLÈTE des factures.
+   *
+   * Quand aucun document n'est ouvert, #print-root est vide : les autres
+   * écrans s'impriment donc normalement via leur propre contenu.
+   */
+  /* Une simple classe posée sur <body> pendant que le document est ouvert :
+     aucun sélecteur exotique, donc aucun risque d'invalidation. */
+  body.printing-doc #root { display: none !important; }
+
+  #print-root { display: block !important; }
+
+  /* Écrans sans document dédié (planning, file d'attente…) : on se contente
+     de retirer l'habillage. */
+  .sidebar, .topbar, .tabs, .btn, .drawer, .drawer-overlay, .toast-wrap,
+  .overlay, .action-strip, .page-head .ph-actions { display: none !important; }
+  .app { display: block !important; }
+  .content { padding: 0 !important; }
+  .card { box-shadow: none; border: 1px solid #999; }
+
+  body { background: #fff; font-size: 11pt; color: #000; }
+  @page { size: A4; margin: 14mm; }
+
+  .print-doc { display: block !important; }
+  .print-header { display: block !important; }
+}
+.print-header { display: none; }
+
+/* --- Mise en page du document imprimable -------------------------------- */
+.print-doc .pd-head { display: flex; justify-content: space-between;
+  align-items: flex-start; gap: 20px; border-bottom: 2px solid #000;
+  padding-bottom: 10px; margin-bottom: 14px; }
+.print-doc .pd-clinic { font-size: 15pt; font-weight: 700; }
+.print-doc .pd-sub { font-size: 9pt; line-height: 1.45; }
+.print-doc .pd-legal { font-size: 8pt; margin-top: 5px; }
+.print-doc .pd-doc { text-align: right; white-space: nowrap; }
+.print-doc .pd-title { font-size: 16pt; font-weight: 700; letter-spacing: .06em; }
+.print-doc .pd-num { font-size: 11pt; font-weight: 600; }
+.print-doc .pd-parties { display: flex; justify-content: space-between;
+  gap: 24px; margin-bottom: 14px; }
+.print-doc .pd-label { font-size: 8pt; text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 2px; }
+.print-doc .pd-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.print-doc .pd-table th, .print-doc .pd-table td {
+  border: 1px solid #000; padding: 5px 7px; font-size: 10pt; }
+.print-doc .pd-table th { text-align: left; }
+.print-doc .num { text-align: right; }
+.print-doc .pd-totals { display: flex; justify-content: flex-end; }
+.print-doc .pd-totals table { border-collapse: collapse; min-width: 62mm; }
+.print-doc .pd-totals td { padding: 3px 7px; font-size: 10pt; }
+.print-doc .pd-strong td { font-weight: 700; }
+.print-doc .pd-total td { font-weight: 700; font-size: 11.5pt;
+  border-top: 2px solid #000; }
+.print-doc .pd-words { margin-top: 12px; font-size: 9.5pt; font-style: italic; }
+.print-doc .pd-pay { margin-top: 12px; font-size: 9.5pt; }
+.print-doc .pd-foot { margin-top: 26px; display: flex;
+  justify-content: space-between; align-items: flex-end; gap: 20px; }
+.print-doc .pd-sign { font-size: 9pt; border-top: 1px solid #000;
+  padding-top: 4px; min-width: 55mm; text-align: center; }
+.print-doc .pd-notes { font-size: 8.5pt; max-width: 100mm; }
+
+/* --- Compteur dans la navigation --------------------------------------- */
+.nav-count { margin-left: auto; background: var(--danger); color: #fff;
+  font-size: 10.5px; font-weight: 700; min-width: 19px; height: 19px;
+  border-radius: 10px; display: inline-grid; place-items: center; padding: 0 5px; }
+.sidebar-nav button.active .nav-count { background: #fff; color: var(--primary-dark); }
+
+/* Repli de la section Configuration */
+.sidebar-nav .group-toggle {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px;
+  color: #7d8f8b; padding: var(--sp-4) 10px 5px; background: none; border: 0;
+  cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%;
+}
+.sidebar-nav .group-toggle:hover { color: #b7c4c1; background: none; }
+.sidebar-nav .group-toggle .ico { font-size: 10px; }
+
+/* ======================================================================
+   Dynamisme : mouvement, profondeur, retour visuel
+   ----------------------------------------------------------------------
+   Le mouvement sert ici à trois choses seulement : signaler qu'une action a
+   été prise en compte, guider le regard vers ce qui vient d'apparaître, et
+   rendre perceptible l'activité en cours. Aucune animation décorative — sur
+   un poste utilisé huit heures par jour, l'agitation gratuite fatigue.
+   Toutes les durées restent sous 250 ms et l'ensemble est neutralisé par
+   prefers-reduced-motion (déclaré plus haut).
+   ====================================================================== */
+
+/* --- Courbes d'accélération -------------------------------------------- */
+:root {
+  --ease-out:   cubic-bezier(.22, .61, .36, 1);
+  --ease-spring: cubic-bezier(.34, 1.36, .64, 1);  /* léger dépassement */
+  --t-fast: .13s;
+  --t-base: .19s;
+}
+
+/* --- Entrée des contenus -----------------------------------------------
+   Décalage progressif : les cartes d'une grille n'apparaissent pas toutes
+   au même instant, ce qui donne une direction de lecture. */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: none; }
+}
+.content > * { animation: riseIn var(--t-base) var(--ease-out) both; }
+.grid > *:nth-child(1) { animation: riseIn var(--t-base) var(--ease-out) both; }
+.grid > *:nth-child(2) { animation: riseIn var(--t-base) 40ms var(--ease-out) both; }
+.grid > *:nth-child(3) { animation: riseIn var(--t-base) 80ms var(--ease-out) both; }
+.grid > *:nth-child(4) { animation: riseIn var(--t-base) 120ms var(--ease-out) both; }
+.grid > *:nth-child(5) { animation: riseIn var(--t-base) 160ms var(--ease-out) both; }
+
+/* --- Cartes : relief au survol ------------------------------------------ */
+.card, .stat {
+  transition: box-shadow var(--t-base) var(--ease-out),
+              transform var(--t-base) var(--ease-out),
+              border-color var(--t-base) var(--ease-out);
+}
+.card:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+.stat:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+
+/* Les compteurs sont cliquables : le curseur et le relief doivent le dire. */
+.stat.clickable { cursor: pointer; }
+.stat.clickable:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
+
+/* --- Boutons : réaction physique ---------------------------------------- */
+button.btn:active:not(:disabled) { transform: translateY(1px); }
+button.btn.primary:hover:not(:disabled) {
+  box-shadow: 0 3px 10px rgba(15, 118, 110, .3);
+}
+button.btn.danger:hover:not(:disabled) {
+  box-shadow: 0 3px 10px rgba(185, 28, 28, .28);
+}
+
+/* Onde au clic : confirme la prise en compte même si le serveur tarde. */
+button.btn { position: relative; overflow: hidden; }
+button.btn::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%),
+              currentColor 0%, transparent 55%);
+  opacity: 0; transition: opacity .45s var(--ease-out);
+  pointer-events: none;
+}
+button.btn:active::after { opacity: .16; transition: none; }
+
+/* --- Navigation : indicateur coulissant --------------------------------- */
+.sidebar-nav button {
+  position: relative;
+  transition: background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              padding-left var(--t-fast) var(--ease-out);
+}
+.sidebar-nav button::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  width: 3px; height: 0; border-radius: 0 3px 3px 0;
+  background: #5eead4; transform: translateY(-50%);
+  transition: height var(--t-base) var(--ease-spring);
+}
+.sidebar-nav button.active::before { height: 62%; }
+.sidebar-nav button:hover:not(.active) { padding-left: 14px; }
+
+/* --- Onglets : soulignement animé --------------------------------------- */
+.tabs button { position: relative; transition: color var(--t-fast) var(--ease-out); }
+.tabs button::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+  background: var(--primary); transform: scaleX(0);
+  transition: transform var(--t-base) var(--ease-out);
+}
+.tabs button.active::after { transform: scaleX(1); }
+.tabs button.active { border-bottom-color: transparent; }
+
+/* --- Lignes de tableau --------------------------------------------------- */
+tbody tr { transition: background var(--t-fast) var(--ease-out); }
+tbody tr.clickable:hover { background: var(--primary-soft); }
+tbody tr.clickable:active { background: var(--primary-light); }
+
+/* --- Badges et compteurs ------------------------------------------------- */
+/* Le compteur de file d'attente attire l'œil à l'incrément, une seule fois. */
+@keyframes countBump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.32); }
+  100% { transform: scale(1); }
+}
+.nav-count { animation: countBump .32s var(--ease-spring); }
+
+/* --- Modales et panneaux ------------------------------------------------- */
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(-12px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes drawerIn { from { transform: translateX(100%); } to { transform: none; } }
+
+.overlay, .drawer-overlay { animation: overlayIn var(--t-fast) var(--ease-out); }
+.modal  { animation: modalIn var(--t-base) var(--ease-spring); }
+.drawer { animation: drawerIn var(--t-base) var(--ease-out); }
+
+/* --- Créneaux horaires --------------------------------------------------- */
+.slot-btn { transition: background var(--t-fast) var(--ease-out),
+                        border-color var(--t-fast) var(--ease-out),
+                        transform var(--t-fast) var(--ease-out); }
+.slot-btn:hover { transform: translateY(-1px); }
+.slot-btn.selected { animation: countBump .28s var(--ease-spring); }
+
+/* --- Rendez-vous dans l'agenda ------------------------------------------- */
+.cal-event { transition: box-shadow var(--t-fast) var(--ease-out),
+                         transform var(--t-fast) var(--ease-out); }
+.cal-event:hover { transform: scale(1.022); }
+
+/* Le trait de l'heure courante respire : rappelle que la vue est vivante. */
+@keyframes nowPulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+.cal-now::before { animation: nowPulse 2.4s ease-in-out infinite; }
+
+/* --- Chargement : squelettes -------------------------------------------- */
+/* Préférables au disque tournant : ils préservent la structure de la page et
+   suppriment le sursaut de mise en page à l'arrivée des données. */
+@keyframes shimmer { to { background-position-x: -200%; } }
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--surface-3) 8%, var(--surface-2) 18%, var(--surface-3) 33%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+  border-radius: var(--radius-sm); color: transparent !important;
+}
+.skeleton-line { height: 11px; margin: 7px 0; }
+.skeleton-line.w60 { width: 60%; }
+.skeleton-line.w40 { width: 40%; }
+
+/* --- Barre de progression indéterminée ---------------------------------- */
+/* Affichée en haut de la fenêtre pendant les requêtes longues (sauvegarde,
+   restauration, rapports) : l'utilisateur voit que le poste travaille. */
+@keyframes barSlide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+.top-progress {
+  position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 300;
+  background: var(--primary-light); overflow: hidden;
+}
+.top-progress > i {
+  display: block; width: 25%; height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  animation: barSlide 1.1s var(--ease-out) infinite;
+}
+
+/* --- Notifications ------------------------------------------------------- */
+.toast {
+  animation: toastIn .26s var(--ease-spring);
+  border-left: 3px solid rgba(255, 255, 255, .35);
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(28px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- Bandeaux d'action --------------------------------------------------- */
+.action-strip { animation: riseIn var(--t-base) var(--ease-out) both; }
+.action-strip.danger .hdot,
+.health-item.bad .hdot { will-change: opacity; }
+
+/* --- Connexion ----------------------------------------------------------- */
+/* Dégradé lentement mobile : le seul écran où un peu de présence visuelle est
+   bienvenue, puisqu'on n'y fait que patienter. */
+@keyframes gradientDrift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.login-page { background-size: 200% 200%; animation: gradientDrift 18s ease infinite; }
+.login-card { animation: modalIn .3s var(--ease-spring); }
+.login-logo { transition: transform var(--t-base) var(--ease-spring); }
+.login-card:hover .login-logo { transform: scale(1.05) rotate(-4deg); }
