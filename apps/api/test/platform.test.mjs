@@ -213,3 +213,78 @@ describe('Panneau de controle Windows', () => {
       'aucune fenetre noire ne doit apparaitre');
   });
 });
+
+/*
+ * Paquet d'installation distribue.
+ *
+ * Le paquet est fabrique sur un runner Windows et n'est donc pas verifiable
+ * ici de bout en bout. Ces contrats verrouillent ce qui, s'il regressait,
+ * livrerait le code source au client ou produirait un executable muet.
+ */
+describe('Paquet d\'installation', () => {
+  const build = () => readFileSync(resolve(ROOT, 'scripts/build-package.mjs'), 'utf8');
+
+  test('la racine est resolue par un seul module', () => {
+    // Chaque fichier calculait sa propre racine en remontant un nombre de
+    // niveaux different : une fois le code regroupe, ces chemins ne veulent
+    // plus rien dire et les migrations sont introuvables.
+    for (const f of ['apps/api/src/main.mjs', 'apps/api/src/db/migrate.mjs',
+                     'apps/api/src/modules/backup.service.mjs']) {
+      const src = readFileSync(resolve(ROOT, f), 'utf8');
+      assert.match(src, /import \{[^}]*ROOT[^}]*\} from '[^']*core\/root\.mjs'/,
+        `${f} doit importer ROOT depuis core/root.mjs`);
+      assert.doesNotMatch(src, /const ROOT = resolve\(dirname\(fileURLToPath/,
+        `${f} ne doit plus recalculer sa propre racine`);
+    }
+  });
+
+  test('l\'executable se reconnait comme point d\'entree', () => {
+    // process.versions.sea n'est pas renseigne partout : s'y fier laissait le
+    // serveur se terminer sans le moindre message.
+    const root = readFileSync(resolve(ROOT, 'apps/api/src/core/root.mjs'), 'utf8');
+    assert.match(root, /node:sea/, 'la detection doit passer par node:sea');
+    assert.match(readFileSync(resolve(ROOT, 'apps/api/src/main.mjs'), 'utf8'),
+      /const isMain = isPackaged \|\|/,
+      'l\'executable doit demarrer le serveur sans comparer import.meta.url');
+  });
+
+  test('aucun await au niveau racine : le format CommonJS l\'interdit', () => {
+    for (const f of ['apps/api/src/main.mjs', 'apps/api/src/db/migrate.mjs']) {
+      const src = readFileSync(resolve(ROOT, f), 'utf8');
+      const bad = src.split('\n').filter((l) => /^\s{0,2}await /.test(l));
+      assert.deepEqual(bad, [],
+        `${f} : un await racine casserait la fabrication de l'executable`);
+    }
+  });
+
+  test('les sourcemaps ne sont jamais distribuees', () => {
+    // Une .map reconstitue le code React d'origine, commentaires compris.
+    assert.match(build(), /endsWith\('\.map'\)/,
+      'les sourcemaps doivent etre exclues du paquet');
+    assert.match(build(), /sourceMappingURL/,
+      'la reference residuelle doit etre retiree des fichiers livres');
+  });
+
+  test('le code distribue est minifie', () => {
+    assert.match(build(), /--minify/,
+      'le bundle doit etre minifie : sans cela le code reste lisible');
+  });
+
+  test('le paquet embarque les migrations', () => {
+    // Elles sont lues a l'execution : sans elles, aucune base ne peut etre
+    // creee sur le poste du client.
+    assert.match(build(), /infra\/db/, 'infra/db doit etre copie dans le paquet');
+    assert.match(readFileSync(resolve(ROOT, 'apps/api/src/main.mjs'), 'utf8'),
+      /--migrate/, 'l\'executable doit savoir preparer la base');
+  });
+
+  test('la chaine de publication est declaree', () => {
+    const wf = readFileSync(resolve(ROOT, '.github/workflows/release.yml'), 'utf8');
+    assert.match(wf, /runs-on: windows-latest/,
+      'un .exe Windows ne peut pas etre produit depuis Linux');
+    assert.match(wf, /npm test/,
+      'aucun paquet ne doit etre publie sans que la suite soit verte');
+    assert.match(wf, /SHA256/,
+      'une empreinte doit permettre de verifier l\'archive telechargee');
+  });
+});

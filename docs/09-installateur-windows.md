@@ -29,6 +29,77 @@ Détails d'implémentation qui comptent :
 - **Le code de sortie est propagé** (`exit /b %RESULT%`), pour un déploiement
   scripté sur plusieurs postes.
 
+## Paquet distribuable et protection du code
+
+`node scripts/build-package.mjs` fabrique dans `release/` un dossier autonome :
+
+| Fichier | Contenu |
+|---|---|
+| `CliniRDV.exe` | Serveur applicatif compile en un binaire unique (SEA Node 22) |
+| `apps/web/dist` | Interface compilee et minifiee, **sans sourcemaps** |
+| `infra/db` | Migrations SQL, lues a l'execution |
+| `Installer.cmd` | Prepare la base via `CliniRDV.exe --migrate` |
+| `CliniRDV.cmd` | Ouvre le panneau de controle |
+
+Le dossier ne contient **aucun fichier `.mjs` ni `.jsx`**.
+
+### Ce que cette protection vaut reellement
+
+Il faut etre precis sur ce point, car le mot « protection » promet souvent
+plus qu'il ne tient :
+
+- **Ce qui est obtenu.** Le JavaScript est regroupe et minifie : noms de
+  variables detruits, commentaires de conception supprimes, structure des
+  modules effacee. Le code n'est ni lisible ni maintenable par un tiers, et
+  les sourcemaps - qui reconstitueraient l'original a l'identique - sont
+  exclues du paquet.
+- **Ce qui n'est pas obtenu.** Ce n'est pas du chiffrement. Le binaire
+  contient du JavaScript que l'on peut extraire et desobfusquer avec de la
+  determination. Aucune technique cote client ne protege absolument un code
+  qui doit s'executer sur une machine que l'on ne controle pas.
+
+L'objectif realiste est d'empecher la reprise, la modification et la revente
+du code par un concurrent ou un client, pas de resister a une analyse
+outillee. Pour une clinique, c'est la protection utile ; la protection
+juridique - licence, contrat - reste le vrai recours.
+
+### Fabrication et telechargement
+
+Un `.exe` Windows ne peut pas etre produit depuis Linux sans chaine croisee :
+le workflow `.github/workflows/release.yml` compile donc sur un runner
+`windows-latest`. Il **execute la suite de tests avant de publier** - un
+paquet casse chez une clinique n'est pas diagnosticable a distance.
+
+Pour publier une version :
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub attache alors `CliniRDV-Windows.zip` et son empreinte `SHA256.txt` a la
+page *Releases*. Sans creer de version, l'onglet *Actions* permet de lancer le
+workflow a la demande et de recuperer l'archive dans les artefacts.
+
+Le client telecharge le zip, l'extrait, double-clique `Installer.cmd`, puis
+`CliniRDV.cmd`. L'empreinte SHA-256 lui permet de verifier que l'archive n'a
+pas ete alteree.
+
+### Points techniques resolus
+
+Trois pieges, chacun rendant l'executable inutilisable, ont ete corriges :
+
+1. **`import.meta.url` est vide en CommonJS.** Chaque module calculait sa
+   racine en remontant un nombre de niveaux different ; migrations, seed et
+   sauvegardes cherchaient leurs fichiers a cote de la plaque. La racine est
+   desormais resolue par `apps/api/src/core/root.mjs`, seul endroit a
+   connaitre cette question.
+2. **`process.versions.sea` n'est pas renseigne** par toutes les versions de
+   Node. Le serveur ne se reconnaissait pas comme point d'entree et se
+   terminait **sans le moindre message**. La detection passe par `node:sea`.
+3. **Le `top-level await` est interdit en CommonJS.** Les appels concernes
+   sont encapsules dans des fonctions asynchrones.
+
 ## Le panneau de controle
 
 Le raccourci **CliniRDV** depose sur le Bureau n'ouvre pas un demarrage

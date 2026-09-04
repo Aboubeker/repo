@@ -4,8 +4,8 @@
  */
 import http from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import {extname, join, normalize, resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 
 import { Router, createHandler } from './core/http.mjs';
 import { healthcheck, closePool, query } from './core/db.mjs';
@@ -22,7 +22,7 @@ import { registerCatalogueRoutes } from './modules/catalogue.routes.mjs';
 import { processNotificationQueue } from './modules/notifications.service.mjs';
 import { integrityCheck } from './modules/backup.service.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+import { ROOT, isPackaged } from './core/root.mjs';
 const WEB_DIR = resolve(ROOT, 'apps/web/dist');
 const PORT = Number(process.env.PORT || 3001);
 /**
@@ -167,19 +167,44 @@ export function createServer() {
  * serveur ne se lançait jamais et le processus se terminait en silence.
  * pathToFileURL() produit la forme canonique sur toutes les plateformes.
  */
-const isMain = process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// Dans l'exécutable distribué, tout le code est regroupé en un seul fichier :
+// il n'y a plus de module « point d'entrée » à comparer, et import.meta.url
+// est vide. Sans ce cas particulier, le serveur ne démarrerait jamais.
+const isMain = isPackaged || (process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href);
 
 // Filet de sécurité : si la détection échouait malgré tout (chemin exotique,
 // lien symbolique, lecteur réseau), le processus se terminerait sans rien dire.
 // Mieux vaut un message explicite qu'un « connexion refusée » inexpliqué.
-if (!isMain && process.argv[1] && /main\.mjs$/.test(process.argv[1])) {
+if (!isMain && !isPackaged && process.argv[1] && /main\.mjs$/.test(process.argv[1])) {
   console.error('\n  ✗ Le serveur n\'a pas pu s\'initialiser (point d\'entrée non reconnu).');
   console.error(`    argv[1]        : ${process.argv[1]}`);
   console.error(`    import.meta.url: ${import.meta.url}`);
   console.error('    Signalez ces deux lignes : il s\'agit d\'un problème de portabilité.\n');
   process.exit(1);
 }
+/*
+ * Mode « installation » de l'exécutable distribué.
+ *
+ * Le paquet ne contient ni npm ni les scripts du dépôt : l'installateur doit
+ * pouvoir préparer la base en appelant le binaire lui-même.
+ */
+if (isMain && process.argv.includes('--migrate')) {
+  // Encapsulé dans une fonction : le format CommonJS produit pour
+  // l'exécutable n'accepte pas d'await au niveau racine du module.
+  (async () => {
+    try {
+      const { runMigrations } = await import('./db/migrate.mjs');
+      await runMigrations();
+      console.log('\n  ✓ Base de données prête.\n');
+      process.exit(0);
+    } catch (e) {
+      console.error(`\n  ✗ Préparation de la base impossible : ${e.message}\n`);
+      process.exit(1);
+    }
+  })();
+}
+
 if (isMain) {
   const server = createServer();
 

@@ -21,10 +21,12 @@
     "app": "node scripts/app.mjs",
     "doctor": "node scripts/doctor.mjs",
     "update": "node scripts/update.mjs",
-    "selftest": "node scripts/selftest.mjs"
+    "selftest": "node scripts/selftest.mjs",
+    "package": "node scripts/build-package.mjs"
   },
   "devDependencies": {
-    "embedded-postgres": "18.4.0-beta.17"
+    "embedded-postgres": "18.4.0-beta.17",
+    "postject": "^1.0.0-alpha.6"
   },
   "dependencies": {
     "pg": "^8.13.1"

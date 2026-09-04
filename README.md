@@ -172,6 +172,19 @@ git checkout arena/01a0629d-repo
 ./install.sh              # Linux / macOS — installe puis démarre l'application
 ```
 
+### Installation depuis le paquet publié (recommandé pour un poste client)
+
+Depuis la page **Releases** du dépôt, télécharger `CliniRDV-Windows.zip`,
+l'extraire, puis double-cliquer sur `Installer.cmd`. Le paquet contient le
+serveur compilé en un exécutable unique : **le code source n'est pas
+distribué**. Une empreinte SHA-256 accompagne l'archive.
+
+Fabrication du paquet : `git tag v1.0.0 && git push origin v1.0.0`, ou
+l'onglet *Actions* pour un tirage à la demande. Détails dans
+[docs/09](docs/09-installateur-windows.md).
+
+### Installation depuis les sources
+
 **Windows 10/11 — double-clic sur `Installer-CliniRDV.cmd`.** C'est la méthode
 recommandée : ce programme d'installation vérifie le système, installe Node.js
 si besoin, prépare la base, compile l'interface, dépose un raccourci

@@ -6,12 +6,11 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {resolve} from 'node:path';
 import { many, one, query } from '../core/db.mjs';
 import { notFound, unprocessable } from '../core/errors.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+import { ROOT } from '../core/root.mjs';
 const BACKUP_DIR = process.env.BACKUP_DIR || resolve(ROOT, 'storage/backups');
 // Le paquet PostgreSQL embarqué dépend de la plateforme : le résoudre
 // dynamiquement évite de chercher des binaires Linux sous Windows ou macOS.

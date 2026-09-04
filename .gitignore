@@ -6,3 +6,7 @@ node_modules/
 dist/
 storage/
 *.log
+
+# Paquet d'installation genere par scripts/build-package.mjs
+release/
+*.zip
