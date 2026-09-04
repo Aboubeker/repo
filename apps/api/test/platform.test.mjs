@@ -288,3 +288,55 @@ describe('Paquet d\'installation', () => {
       'une empreinte doit permettre de verifier l\'archive telechargee');
   });
 });
+
+/*
+ * Regressions signalees en exploitation sur un poste Windows :
+ * connexion impossible (erreur 500) et journal du panneau illisible.
+ */
+describe('Panneau de controle — demarrage et lisibilite', () => {
+  const panel = () => readFileSync(resolve(ROOT, 'scripts/CliniRDV-Controle.ps1'), 'utf8');
+
+  test('le bouton Demarrer lance aussi la base de donnees', () => {
+    // « npm start » ne demarre que le serveur web : la base restait arretee
+    // et toute connexion echouait en erreur 500.
+    const src = panel();
+    assert.match(src, /'npm', 'run', 'app'/,
+      'le demarrage doit passer par « npm run app », qui demarre PostgreSQL');
+    assert.doesNotMatch(src, /'npm', 'start'/,
+      '« npm start » laisse la base a l\'arret');
+  });
+
+  test('la sortie des commandes est lue en UTF-8', () => {
+    const src = panel();
+    assert.match(src, /OutputEncoding = \[Text\.Encoding\]::UTF8/,
+      'sans cela les accents s\'affichent en caracteres parasites');
+    assert.match(src, /chcp 65001/,
+      'la console appelee doit elle aussi passer en UTF-8');
+    assert.doesNotMatch(src, /& cmd\.exe \/c "npm run/,
+      'les commandes doivent passer par Invoke-Tool');
+  });
+
+  test('les symboles absents de la police sont convertis', () => {
+    const src = panel();
+    assert.match(src, /function Format-LogLine/,
+      'les symboles decoratifs s\'afficheraient en carres vides');
+    assert.match(src, /Write-Log[\s\S]{0,120}Format-LogLine/,
+      'Write-Log doit appliquer la conversion');
+  });
+});
+
+describe('Base de donnees injoignable', () => {
+  test('l\'erreur dit quoi faire, au lieu d\'« erreur interne »', () => {
+    const src = readFileSync(resolve(ROOT, 'apps/api/src/core/errors.mjs'), 'utf8');
+    assert.match(src, /ECONNREFUSED/,
+      'un refus de connexion a la base doit etre reconnu');
+    assert.match(src, /DATABASE_UNAVAILABLE/,
+      'le code d\'erreur doit etre explicite');
+    assert.match(src, /panneau de contr/,
+      'le message doit indiquer la marche a suivre');
+    // 503 et non 500 : le service est temporairement indisponible, la
+    // requete redeviendra valide une fois la base demarree.
+    assert.match(src, /AppError\(503, 'DATABASE_UNAVAILABLE'/,
+      'un service indisponible se signale par 503');
+  });
+});

@@ -122,8 +122,46 @@ $log.BackColor      = [Drawing.Color]::FromArgb(250, 250, 250)
 $log.Font           = New-Object Drawing.Font('Consolas', 8.5)
 $form.Controls.Add($log)
 
+# --- Lecture d'une commande externe ----------------------------------
+# Les scripts Node emettent de l'UTF-8, alors que cmd.exe rend son texte dans
+# la page de code de la console (850 en Europe francophone). Lire la sortie
+# sans le preciser affichait des caracteres parasites a la place des accents.
+function Invoke-Tool([string]$CommandLine) {
+  $prev = [Console]::OutputEncoding
+  try {
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+    $out = & cmd.exe /c "chcp 65001 >nul & $CommandLine 2>&1"
+  } finally {
+    [Console]::OutputEncoding = $prev
+  }
+  return $out
+}
+
+# La zone de journal utilise une police a chasse fixe depourvue des symboles
+# decoratifs employes par les scripts : sans conversion ils s'affichent en
+# carres vides.
+function Format-LogLine([string]$Line) {
+  $map = @{
+    [char]0x2713 = '[ok]'; [char]0x2714 = '[ok]'
+    [char]0x2717 = '[X]';  [char]0x2718 = '[X]'
+    [char]0x25B8 = '>';    [char]0x2022 = '-'
+    [char]0x2192 = '->';   [char]0x2502 = '|'
+    [char]0x2500 = '-';    [char]0x2014 = '-'
+    [char]0x2013 = '-';    [char]0x2026 = '...'
+    [char]0x00B7 = '-';    [char]0x26A0 = '[!]'
+    [char]0x00AB = '"';    [char]0x00BB = '"'
+  }
+  $sb = New-Object Text.StringBuilder
+  foreach ($ch in $Line.ToCharArray()) {
+    if ($map.ContainsKey($ch)) { [void]$sb.Append($map[$ch]) }
+    else { [void]$sb.Append($ch) }
+  }
+  return $sb.ToString()
+}
+
 function Write-Log($msg) {
-  $log.AppendText(('[{0}] {1}{2}' -f (Get-Date -Format 'HH:mm:ss'), $msg, [Environment]::NewLine))
+  $clean = Format-LogLine "$msg"
+  $log.AppendText(('[{0}] {1}{2}' -f (Get-Date -Format 'HH:mm:ss'), $clean, [Environment]::NewLine))
 }
 
 # ------------------------------------------------------- Rafraichissement
@@ -160,8 +198,11 @@ $btnStart.add_Click({
   $btnStart.Enabled = $false
   # -WindowStyle Hidden : le serveur tourne en tache de fond, l'utilisateur
   # n'a pas de fenetre noire a garder ouverte (ni a fermer par erreur).
+  # 'npm run app', pas 'npm start' : start lance le seul serveur web et
+  # laisse PostgreSQL a l'arret, si bien que la connexion echouait avec une
+  # erreur 500. app demarre la base, verifie les prerequis, puis le serveur.
   Start-Process -FilePath 'cmd.exe' `
-    -ArgumentList '/c', 'npm', 'start' `
+    -ArgumentList '/c', 'npm', 'run', 'app' `
     -WorkingDirectory $Root -WindowStyle Hidden
 
   # Le demarrage inclut PostgreSQL : on laisse jusqu'a 40 s avant d'alerter.
@@ -212,7 +253,7 @@ $btnUpdate.add_Click({
   Write-Log 'Mise a jour en cours (cela peut prendre une minute)...'
   $form.Cursor = 'WaitCursor'
   $btnUpdate.Enabled = $false
-  $out = & cmd.exe /c "npm run update 2>&1"
+  $out = Invoke-Tool "npm run update"
   $form.Cursor = 'Default'
   $btnUpdate.Enabled = $true
 
@@ -223,7 +264,7 @@ $btnUpdate.add_Click({
 
 $btnDiag.add_Click({
   Write-Log 'Diagnostic en cours...'
-  $out = & cmd.exe /c "npm run doctor 2>&1"
+  $out = Invoke-Tool "npm run doctor"
   foreach ($line in $out) { if ("$line".Trim()) { Write-Log "$line" } }
 })
 

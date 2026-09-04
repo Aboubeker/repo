@@ -60,5 +60,21 @@ export function translateDbError(err) {
   if (err.code === '23502') return badRequest(`Le champ « ${err.column} » est obligatoire.`);
   if (err.code === '22P02') return badRequest('Format de donnée invalide.');
 
+  /*
+   * Base de données injoignable.
+   *
+   * Ces codes ne viennent pas de PostgreSQL mais du système : le serveur web
+   * tourne alors que la base est arrêtée. L'écran de connexion affichait
+   * « Une erreur interne est survenue », message qui ne dit ni ce qui se
+   * passe ni quoi faire, alors que la cause est précise et la solution
+   * immédiate.
+   */
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH',
+       'ECONNRESET', '57P03'].includes(err.code)) {
+    return new AppError(503, 'DATABASE_UNAVAILABLE',
+      'La base de données ne répond pas. Ouvrez le panneau de contrôle '
+      + 'CliniRDV et cliquez sur « Démarrer », puis réessayez.');
+  }
+
   return new AppError(500, 'INTERNAL_ERROR', 'Une erreur interne est survenue.');
 }
