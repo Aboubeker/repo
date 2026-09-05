@@ -21,7 +21,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import {
-  existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, unlinkSync,
+  existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readSync,
 } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -38,6 +38,22 @@ import {
 /* ------------------------------------------------------------ erreurs -- */
 
 export class InstallerError extends Error {}
+
+/**
+ * Affiche l'erreur et attend une touche : au double-clic, la console
+ * disparaît avec le processus — sans ce pause, le message d'erreur est
+ * lisible une fraction de seconde (c'est exactement ce qui est arrivé
+ * au premier dépannage : « des alertes en rouge puis ça se ferme »).
+ * Si stdin n'est pas un terminal (pipe, redirection), le readSync
+ * renvoie immédiatement : aucun blocage.
+ */
+export function reportAndPause(message) {
+  console.error(`ERREUR ${message}`);
+  try {
+    process.stdout.write('\nAppuyez sur Entree pour fermer cette fenetre...');
+    readSync(0, Buffer.alloc(1));
+  } catch {}
+}
 
 /* ---------------------------------------------------------------- SELF -- */
 
@@ -390,10 +406,12 @@ function runGui() {
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
       { stdio: 'inherit', windowsHide: true,
         env: { ...process.env, CLINIRDV_INSTALLER_SELF: self } });
-    process.exit(child.status ?? 1);
-  } catch (e) {
-    console.error(`ERREUR ${e.message}`);
-    process.exit(1);
+    if (child.error) throw child.error;
+    if (child.status === 0) process.exit(0);
+    // Échec de l'assistant (sa boîte de dialogue s'est probablement
+    // affichée) : on remonte l'erreur au lieu de fermer la console.
+    throw new InstallerError(
+      `l'assistant s'est termine avec le code ${child.status ?? 'inconnu'} (voir le message ci-dessus)`);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -405,29 +423,26 @@ const isMain = isPackaged || (process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href);
 
 if (isMain) {
-  const args = process.argv.slice(2);
-  const flag = (name, def = null) => {
-    const i = args.indexOf(name);
-    return i >= 0 ? args[i + 1] : def;
-  };
-  const has = (name) => args.includes(name);
-
-  if (has('--inspect')) {
-    console.log(JSON.stringify(inspectTarget(flag('--inspect') || '.'), null, 2));
-  } else if (has('--verify-archive')) {
-    const v = verifyZip(readSelfArchive());
-    console.log(`Archive saine : ${v.entries} entrées, ${v.files} fichiers, ` +
-      `${(v.bytes / 1048576).toFixed(1)} Mo (CRC vérifiés).`);
-  } else if (has('--silent')) {
-    (async () => {
-      const progress = (pct, msg) => console.log(`PROGRESS ${pct} ${msg}`);
-      const log = (l) => console.log(l);
-      try {
+  (async () => {
+    const args = process.argv.slice(2);
+    const flag = (name, def = null) => {
+      const i = args.indexOf(name);
+      return i >= 0 ? args[i + 1] : def;
+    };
+    const has = (name) => args.includes(name);
+    try {
+      if (has('--inspect')) {
+        console.log(JSON.stringify(inspectTarget(flag('--inspect') || '.'), null, 2));
+      } else if (has('--verify-archive')) {
+        const v = verifyZip(readSelfArchive());
+        console.log(`Archive saine : ${v.entries} entrées, ${v.files} fichiers, ` +
+          `${(v.bytes / 1048576).toFixed(1)} Mo (CRC vérifiés).`);
+      } else if (has('--silent')) {
         let pw = flag('--admin-password');
         const pwFile = flag('--admin-password-file');
         if (!pw && pwFile) {
           pw = readFileSync(pwFile, 'utf8').trim();
-          unlinkSync(pwFile, { force: true });   // lu par l'assistant, plus utile
+          rmSync(pwFile, { force: true });   // lu par l'assistant, plus utile
         }
         const r = await install({
           target: flag('--target'),
@@ -435,20 +450,18 @@ if (isMain) {
           port: flag('--port', '3001'),
           adminPassword: pw,
           update: has('--update'),
-          progress, log,
+          progress: (pct, msg) => console.log(`PROGRESS ${pct} ${msg}`),
+          log: (l) => console.log(l),
         });
         console.log(`SUCCES installation terminee dans ${r.targetDir}`);
-      } catch (e) {
-        console.error(`ERREUR ${e.message}`);
-        process.exitCode = 1;
+      } else if (process.platform === 'win32') {
+        runGui();   // ne revient que si l'assistant a échoué (erreur remontée)
+      } else {
+        await runConsole();
       }
-    })();
-  } else if (process.platform === 'win32') {
-    runGui();
-  } else {
-    (async () => {
-      try { await runConsole(); }
-      catch (e) { console.error(`ERREUR ${e.message}`); process.exitCode = 1; }
-    })();
-  }
+    } catch (e) {
+      reportAndPause(e.message);
+      process.exitCode = 1;
+    }
+  })();
 }

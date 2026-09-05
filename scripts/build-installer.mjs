@@ -97,10 +97,15 @@ pgEntries.length = 0;   // libère les buffers avant l'archivage final
 if (!existsSync(join(OUT, 'pg/bin'))) die('pg/bin absent après archivage');
 ok(`pg/ déposé (${pgBytes / 1048576 | 0} Mo, symlinks matérialisés)`);
 
-// L'assistant graphique fait partie de la distribution (le moteur GUI le
-// déploie depuis l'archive ; il reste aussi disponible au dossier cible).
-const assistantSrc = join(ROOT, 'scripts/installer/Assistant-Installation.ps1');
-cpSync(assistantSrc, join(OUT, 'Assistant-Installation.ps1'));
+// L'assistant graphique et l'assembleur font partie de la distribution
+// (le moteur GUI déploie l'assistant depuis l'archive ; l'assembleur
+// reconstitue l'exécutable depuis ses 2 parties, limite GitHub comprise).
+for (const [src, dst] of [
+  ['scripts/installer/Assistant-Installation.ps1', 'Assistant-Installation.ps1'],
+  ['scripts/installer/Assembler-Installateur.bat', 'Assembler-Installateur.bat'],
+]) {
+  cpSync(join(ROOT, src), join(OUT, dst));
+}
 
 /* ---------------------------------------- 3. Moteur d'installation (SEA) -- */
 step("3/5  Moteur d'installation (SEA)");

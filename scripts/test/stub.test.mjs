@@ -356,4 +356,31 @@ describe('Assistant-Installation.ps1 — contrat de source', () => {
     assert.match(src, /Test-Path \(Join-Path \$folder '\.pgdata'\)/);
     assert.match(src, /--update/);
   });
+
+  // Régression v1.0.0 : une apostrophe non échappée dans une chaîne
+  // PowerShell (« 'Dossier d'installation' ») refermait la chaîne au milieu
+  // du mot et cascadait en dizaine d'erreurs de parsing sur Windows —
+  // la console clignotait et se fermait sans que l'assistant ne s'ouvre.
+  test('chaînes PowerShell équilibrées (apostrophes échappées)', () => {
+    const bad = [];
+    ps1().split('\n').forEach((line, n) => {
+      let inStr = null;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inStr) {
+          if (ch === inStr) {
+            if (line[i + 1] === inStr) i++;      // '' ou "" : échappé
+            else inStr = null;
+          }
+        } else if (ch === '#') {
+          break;                                  // commentaire
+        } else if (ch === "'" || ch === '"') {
+          inStr = ch;
+        }
+      }
+      if (inStr) bad.push(n + 1);
+    });
+    assert.deepEqual(bad, [],
+      'guillemet non fermé (apostrophe à échapper en « \'\' ») : lignes ' + bad.join(', '));
+  });
 });

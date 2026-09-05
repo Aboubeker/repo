@@ -61,7 +61,7 @@ $txtName.Location = New-Object Drawing.Point(26, 112)
 $txtName.Size = New-Object Drawing.Size(400, 24)
 $form.Controls.Add($txtName)
 
-$form.Controls.Add((New-Label 'Dossier d'installation' 26 150))
+$form.Controls.Add((New-Label 'Dossier d''installation' 26 150))
 $txtFolder = New-Object Windows.Forms.TextBox
 $txtFolder.Location = New-Object Drawing.Point(26, 170)
 $txtFolder.Size = New-Object Drawing.Size(330, 24)
@@ -75,7 +75,7 @@ $btnBrowse.Location = New-Object Drawing.Point(364, 168)
 $btnBrowse.Size = New-Object Drawing.Size(62, 28)
 $btnBrowse.add_Click({
   $dlg = New-Object Windows.Forms.FolderBrowserDialog
-  $dlg.Description = 'Choisissez le dossier d'installation'
+  $dlg.Description = 'Choisissez le dossier d''installation'
   if ($txtFolder.Text -and (Test-Path $txtFolder.Text)) { $dlg.SelectedPath = $txtFolder.Text }
   if ($dlg.ShowDialog() -eq 'OK') { $txtFolder.Text = $dlg.SelectedPath }
 })
