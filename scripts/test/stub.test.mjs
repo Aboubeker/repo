@@ -361,6 +361,35 @@ describe('Assistant-Installation.ps1 — contrat de source', () => {
   // PowerShell (« 'Dossier d'installation' ») refermait la chaîne au milieu
   // du mot et cascadait en dizaine d'erreurs de parsing sur Windows —
   // la console clignotait et se fermait sans que l'assistant ne s'ouvre.
+  // Régression v1.0.1 : « $proc.OutputDataReceived += {...} » n'existe pas
+  // dans Windows PowerShell 5.1 (« The property 'OutputDataReceived'
+  // cannot be found... ») — l'installation échouait dès le clic sur
+  // Installer. Les sorties passent par Register-ObjectEvent + Wait-Event,
+  // consommés sur le thread du panneau.
+  test('sorties du fils : Register-ObjectEvent, jamais « += »', () => {
+    const src = ps1();
+    assert.match(src, /Register-ObjectEvent/);
+    assert.match(src, /Wait-Event/);
+    assert.match(src, /Drain-ProcessEvents/);
+    assert.doesNotMatch(src, /OutputDataReceived \+=/);
+    assert.doesNotMatch(src, /ErrorDataReceived \+=/);
+  });
+
+  // Régression v1.0.1 : « exit » dans le gestionnaire de clic levait une
+  // ExitException affichée comme une erreur système (« Unhandled exception
+  // in a component ») — le code est mémorisé et la fenêtre fermée, le
+  // script se termine après ShowDialog.
+  test('pas de « exit » dans le gestionnaire d\u2019installation', () => {
+    const src = ps1();
+    const handler = src.slice(src.indexOf('$btnInstall.add_Click'));
+    assert.ok(handler.length > 100, 'le gestionnaire Installer doit exister');
+    assert.doesNotMatch(handler, /(^|\s)exit \d/m,
+      'exit est interdit dans le gestionnaire, il provoque un dialogue d\u2019exception .NET');
+    assert.match(handler, /\$script:ExitCode = 1/);
+    assert.match(handler, /\$form\.Close\(\)/);
+    assert.match(src, /exit \$script:ExitCode/);
+  });
+
   test('chaînes PowerShell équilibrées (apostrophes échappées)', () => {
     const bad = [];
     ps1().split('\n').forEach((line, n) => {
@@ -382,5 +411,19 @@ describe('Assistant-Installation.ps1 — contrat de source', () => {
     });
     assert.deepEqual(bad, [],
       'guillemet non fermé (apostrophe à échapper en « \'\' ») : lignes ' + bad.join(', '));
+  });
+});
+
+describe('runGui — contrat de source', () => {
+  // Régression v1.0.1 : windowsHide:true rendait la fenêtre WinForms de
+  // l'assistant invisible (le processus tournait derrière une console
+  // noire, sans recours). Le contrat est vérifié sur la source : runGui
+  // n'est pas exécutable hors Windows.
+  test('l\u2019assistant est lancé en fenêtre VISIBLE', () => {
+    const src = readFileSync(new URL('../installer/stub.mjs', import.meta.url), 'utf8');
+    const gui = src.slice(src.indexOf('function runGui()'));
+    assert.ok(gui.length > 100, 'runGui doit exister');
+    assert.match(gui, /windowsHide: false/);
+    assert.doesNotMatch(gui, /windowsHide: true/);
   });
 });

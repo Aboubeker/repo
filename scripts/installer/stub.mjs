@@ -400,11 +400,19 @@ function runGui() {
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
   try {
+    console.log('');
+    console.log('  CliniRDV - demarrage de l\'installateur...');
+    console.log('  Extraction de l\'assistant graphique...');
     extractSingleEntry(readSelfArchive(), 'Assistant-Installation.ps1', tmp);
     const ps1 = join(tmp, 'Assistant-Installation.ps1');
+    console.log('  Lancement de l\'assistant : la fenetre « CliniRDV - Installation » va s\'ouvrir.');
     const child = spawnSync('powershell',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
-      { stdio: 'inherit', windowsHide: true,
+      // windowsHide DOIT rester à false : avec true, Windows marque le
+      // processus « SW_HIDE » et la fenêtre WinForms de l'assistant hérite
+      // de cet état — le processus tourne mais reste invisible (la console
+      // noire sans fenêtre de la v1.0.1).
+      { stdio: 'inherit', windowsHide: false,
         env: { ...process.env, CLINIRDV_INSTALLER_SELF: self } });
     if (child.error) throw child.error;
     if (child.status === 0) process.exit(0);

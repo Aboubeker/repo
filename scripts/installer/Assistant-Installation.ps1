@@ -26,12 +26,20 @@ if (-not $Exe -or -not (Test-Path $Exe)) {
 
 $script:Pending = New-Object System.Collections.ArrayList
 $script:Errors  = New-Object System.Collections.ArrayList
+# Code de sortie MEMORISE par le bouton Installer : un "exit" direct dans
+# un gestionnaire de clic leve une ExitException que Windows Forms affiche
+# comme une erreur systeme. Le script se termine APRES ShowDialog (bas du
+# fichier) avec ce code.
+$script:ExitCode = 0
 
 # ------------------------------------------------------------------ Fenetre
 $form = New-Object Windows.Forms.Form
 $form.Text = 'CliniRDV - Installation'
 $form.Size = New-Object Drawing.Size(470, 660)
 $form.StartPosition = 'CenterScreen'
+# Passe devant la console au lancement, puis redevient une fenetre normale.
+$form.Topmost = $true
+$form.add_Shown({ $form.Topmost = $false; [void]$form.Activate() })
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
 $form.BackColor = [Drawing.Color]::White
@@ -158,6 +166,23 @@ function Drain-Pending {
   }
 }
 
+# File des sorties du processus fils : les evenements .NET sont mis en file
+# par le moteur (Register-ObjectEvent, voir le bouton Installer) et relus
+# ici avec Wait-Event, SUR LE THREAD DU PANNEAU : une seule voie, aucun
+# appel entre threads, ce que Windows Forms interdit.
+function Drain-ProcessEvents {
+  $ev = Wait-Event -Timeout 0
+  while ($null -ne $ev) {
+    $data = $ev.SourceEventArgs.Data
+    if ($null -ne $data) {
+      [void]$script:Pending.Add($data)
+      if ($ev.SourceIdentifier -eq 'CliniRDV-Err') { [void]$script:Errors.Add($data) }
+    }
+    Remove-Event -EventIdentifier $ev.EventIdentifier -ErrorAction SilentlyContinue
+    $ev = Wait-Event -Timeout 0
+  }
+}
+
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 100
 $timer.add_Tick({ Drain-Pending })
@@ -223,27 +248,37 @@ $btnInstall.add_Click({
   $psi.RedirectStandardError = $true
   $psi.WorkingDirectory = (Split-Path -Parent $Exe)
 
+  # Abonnements residuels eventuels (clic precedent interrompu).
+  Unregister-Event -SourceIdentifier 'CliniRDV-Out' -ErrorAction SilentlyContinue
+  Unregister-Event -SourceIdentifier 'CliniRDV-Err' -ErrorAction SilentlyContinue
+
   try {
     $proc = [System.Diagnostics.Process]::Start($psi)
-    $proc.OutputDataReceived += { param($s, $e) if ($null -ne $e.Data) { [void]$script:Pending.Add($e.Data) } }
-    $proc.ErrorDataReceived += { param($s, $e) if ($null -ne $e.Data) {
-        [void]$script:Pending.Add($e.Data)
-        [void]$script:Errors.Add($e.Data)
-      } }
+    # SANS "+=" : Windows PowerShell 5.1 ne connait pas cette syntaxe C#
+    # pour les evenements ("The property 'OutputDataReceived' cannot be
+    # found..."). Les lignes sont mises en file par le moteur et relues
+    # avec Wait-Event (Drain-ProcessEvents), sur le thread du panneau.
+    Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -SourceIdentifier 'CliniRDV-Out' | Out-Null
+    Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -SourceIdentifier 'CliniRDV-Err' | Out-Null
     $proc.BeginOutputReadLine()
     $proc.BeginErrorReadLine()
     # Lecture au fil de l'eau : on attend sans bloquer le panneau.
     while (-not $proc.WaitForExit(100)) {
+      Drain-ProcessEvents
       Drain-Pending
       [Windows.Forms.Application]::DoEvents()
     }
     $proc.WaitForExit()
+    Start-Sleep -Milliseconds 200
+    Drain-ProcessEvents
     Drain-Pending
     $code = $proc.ExitCode
   } catch {
     $code = 1
     [void]$script:Errors.Add($_.Exception.Message)
   } finally {
+    Unregister-Event -SourceIdentifier 'CliniRDV-Out' -ErrorAction SilentlyContinue
+    Unregister-Event -SourceIdentifier 'CliniRDV-Err' -ErrorAction SilentlyContinue
     Remove-Item $pwfile -ErrorAction SilentlyContinue
     $form.Cursor = 'Default'
   }
@@ -252,13 +287,17 @@ $btnInstall.add_Click({
     $msg = "L'installation a echoue (code $code)."
     if ($script:Errors.Count -gt 0) { $msg += "`n`n" + ($script:Errors -join "`n") }
     [Windows.Forms.MessageBox]::Show($msg, 'Erreur', 'OK', 'Error') | Out-Null
-    exit 1
+    $script:ExitCode = 1
+    $form.Close()
+    return
   }
 
   [Windows.Forms.MessageBox]::Show(
     "Installation terminee.`n`nVous pouvez lancer CliniRDV depuis le raccourci depose sur le Bureau.",
     'Succes', 'OK', 'Information') | Out-Null
-  exit 0
+  $script:ExitCode = 0
+  $form.Close()
+  return
 })
 
 # Fermer la fenetre n'arrete rien d'autre : si l'installation tourne, c'est
@@ -269,4 +308,4 @@ $form.add_FormClosing({
 
 Write-LogLine 'Pret. Renseignez les champs puis cliquez sur Installer.'
 [void]$form.ShowDialog()
-exit 0
+exit $script:ExitCode
