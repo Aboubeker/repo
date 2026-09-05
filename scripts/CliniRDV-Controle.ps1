@@ -219,8 +219,11 @@ $btnStart.add_Click({
   # 'npm run app', pas 'npm start' : start lance le seul serveur web et
   # laisse PostgreSQL a l'arret, si bien que la connexion echouait avec une
   # erreur 500. app demarre la base, verifie les prerequis, puis le serveur.
+  # '-- --no-open' : 'npm run app' ouvre lui-meme le navigateur, et ce panneau
+  # en ouvre un second quand le serveur repond. Un seul des deux doit le
+  # faire : c'est ce panneau, qui attend la vraie disponibilite du serveur.
   Start-Process -FilePath 'cmd.exe' `
-    -ArgumentList '/c', 'npm', 'run', 'app' `
+    -ArgumentList '/c', 'npm', 'run', 'app', '--', '--no-open' `
     -WorkingDirectory $Root -WindowStyle Hidden
 
   # Le demarrage inclut PostgreSQL : on laisse jusqu'a 40 s avant d'alerter.

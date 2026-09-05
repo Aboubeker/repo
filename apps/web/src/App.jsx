@@ -52,6 +52,9 @@ export default function App() {
   // Ouvert d'emblée pour les profils qui n'ont accès qu'à la configuration
   // (un administrateur pur ne verrait sinon qu'un menu vide au démarrage).
   const [showConfig, setShowConfig] = useState(false);
+  // Tiroir de navigation sur tablette et mobile (voir le CSS sous 1024 px).
+  // Refermé à chaque navigation : rester ouvert masquerait la page.
+  const [navOpen, setNavOpen] = useState(false);
   const [waiting, setWaiting] = useState(0);
   const [brand, setBrand] = useState(null);
   const [theme, setTheme] = useState(null);
@@ -96,6 +99,7 @@ export default function App() {
   }, [user, page]);
 
   const go = useCallback((id, arg) => {
+    setNavOpen(false);
     if (id === 'patient') { setPatientId(arg); setPage('patient'); }
     else { setPage(id); setPatientId(null); }
   }, []);
@@ -142,7 +146,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <nav className="sidebar">
+      <nav className={`sidebar${navOpen ? ' open' : ''}`}>
+
         <div className="sidebar-brand">
           {theme?.logo_data_uri
             ? <img className="mark-img" src={theme.logo_data_uri} alt="" />
@@ -170,13 +175,19 @@ export default function App() {
           <div style={{ marginTop: 3 }}>Aucune connexion externe</div>
         </div>
       </nav>
+      {navOpen && (
+        <button type="button" className="sidebar-overlay" aria-label="Fermer le menu"
+                onClick={() => setNavOpen(false)} />
+      )}
 
       <div className="main">
         <header className="topbar">
+          <button className="btn ghost sm nav-toggle" onClick={() => setNavOpen((v) => !v)}
+                  aria-expanded={navOpen} aria-label="Menu de navigation">☰</button>
           <h2>{page === 'patient' ? 'Fiche client' : current?.label || 'Tableau de bord'}</h2>
           <div className="spacer" />
           {can(user, 'appointment.write') && (
-            <button className="btn primary" onClick={() => setNewAppt({})}>
+            <button className="btn primary btn-new" onClick={() => setNewAppt({})}>
               + Nouveau rendez-vous <kbd style={{ opacity: .7, fontSize: 11 }}>N</kbd>
             </button>
           )}
@@ -191,7 +202,7 @@ export default function App() {
             <div className="avatar">
               {user.fullName.split(' ').map((w) => w[0]).slice(0, 2).join('')}
             </div>
-            <div>
+            <div className="uinfo">
               <div style={{ fontWeight: 500 }}>{user.fullName}</div>
               <div className="small muted">{user.roles.join(', ')}</div>
             </div>
