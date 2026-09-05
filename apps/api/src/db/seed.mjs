@@ -5,6 +5,7 @@
  */
 import { pool } from '../core/db.mjs';
 import { hashPassword } from '../core/auth.mjs';
+import { ensureRbac, ROLES } from './rbac.mjs';
 
 const c = await pool.connect();
 const q = (sql, p) => c.query(sql, p);
@@ -36,60 +37,12 @@ try {
   console.log('• Initialisation des données de démonstration…');
 
   /* ------------------------- Permissions & rôles ------------------------ */
-  const PERMISSIONS = [
-    ['patient.read', 'Consulter les patients', 'Patients'],
-    ['patient.write', 'Créer / modifier les patients', 'Patients'],
-    ['patient.write.medical', 'Saisir les données médicales', 'Patients'],
-    ['patient.merge', 'Fusionner des fiches patients', 'Patients'],
-    ['practitioner.read', 'Consulter les praticiens', 'Praticiens'],
-    ['practitioner.write', 'Gérer les praticiens et disponibilités', 'Praticiens'],
-    ['appointment.read', 'Consulter l\'agenda', 'Rendez-vous'],
-    ['appointment.read.all', 'Consulter l\'agenda de tous les praticiens', 'Rendez-vous'],
-    ['appointment.write', 'Créer / modifier des rendez-vous', 'Rendez-vous'],
-    ['appointment.override', 'Forcer un créneau indisponible', 'Rendez-vous'],
-    ['encounter.read', 'Lire les comptes rendus', 'Consultations'],
-    ['encounter.write', 'Rédiger les comptes rendus', 'Consultations'],
-    ['resource.read', 'Consulter les ressources', 'Ressources'],
-    ['resource.write', 'Gérer salles et équipements', 'Ressources'],
-    ['billing.read', 'Consulter la facturation', 'Facturation'],
-    ['invoice.write', 'Créer et émettre des factures', 'Facturation'],
-    ['invoice.void', 'Émettre des avoirs', 'Facturation'],
-    ['payment.write', 'Encaisser des paiements', 'Facturation'],
-    ['report.read', 'Consulter les rapports', 'Rapports'],
-    ['audit.read', 'Consulter le journal d\'audit', 'Administration'],
-    ['admin.users', 'Gérer les utilisateurs', 'Administration'],
-    ['admin.settings', 'Modifier le paramétrage', 'Administration'],
-    ['admin.backup', 'Gérer les sauvegardes', 'Administration'],
-  ];
-  for (const [code, label, category] of PERMISSIONS) {
-    await q(`INSERT INTO permission (code,label,category) VALUES ($1,$2,$3)
-             ON CONFLICT (code) DO NOTHING`, [code, label, category]);
-  }
-
-  const ROLES = {
-    ADMIN: { label: 'Administrateur', perms: PERMISSIONS.map((p) => p[0]) },
-    RECEPTION: { label: 'Réceptionniste', perms: [
-      'patient.read','patient.write','practitioner.read','appointment.read','appointment.read.all',
-      'appointment.write',
-      'resource.read','billing.read','invoice.write','payment.write'] },
-    PRACTITIONER: { label: 'Praticien', perms: [
-      'patient.read','patient.write','patient.write.medical','practitioner.read','practitioner.write',
-      'appointment.read','appointment.write','appointment.override',
-      'encounter.read','encounter.write','resource.read','report.read'] },
-    BILLING: { label: 'Facturation', perms: [
-      'patient.read','appointment.read','appointment.read.all','billing.read','invoice.write','invoice.void',
-      'payment.write','report.read'] },
-    READONLY: { label: 'Consultation seule', perms: ['report.read'] },
-  };
+  // Le socle vient de db/rbac.mjs — la même source que « --setup » sur un
+  // poste installé : plus de divergence possible entre les deux mondes.
+  await ensureRbac(c);
   const roleIds = {};
-  for (const [code, { label, perms }] of Object.entries(ROLES)) {
-    const r = await first(`INSERT INTO role (code,label) VALUES ($1,$2)
-      ON CONFLICT (code) DO UPDATE SET label = EXCLUDED.label RETURNING id`, [code, label]);
-    roleIds[code] = r.id;
-    for (const p of perms) {
-      await q(`INSERT INTO role_permission (role_id, permission_code) VALUES ($1,$2)
-               ON CONFLICT DO NOTHING`, [r.id, p]);
-    }
+  for (const code of Object.keys(ROLES)) {
+    roleIds[code] = (await first(`SELECT id FROM role WHERE code = $1`, [code])).id;
   }
 
   /* ---------------------------- Référentiels ---------------------------- */

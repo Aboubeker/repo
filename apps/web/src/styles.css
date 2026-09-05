@@ -934,3 +934,94 @@ tbody tr.clickable:active { background: var(--primary-light); }
 .login-card { animation: modalIn .3s var(--ease-spring); }
 .login-logo { transition: transform var(--t-base) var(--ease-spring); }
 .login-card:hover .login-logo { transform: scale(1.05) rotate(-4deg); }
+
+/* ======================================================================
+   Menu d'actions compact (« ⋮ »)
+   ----------------------------------------------------------------------
+   Un seul bouton par ligne de tableau (voir RowActions dans lib.jsx). Le
+   menu est rendu dans un portail en position fixe : aucun conteneur
+   scrollable ne le rogne, d'où l'absence de positionnement relatif ici.
+   ====================================================================== */
+.menu-btn { padding: 5px 10px; font-size: 15px; line-height: 1; }
+td.actions-cell { width: 54px; }
+.menu {
+  position: fixed; z-index: 400; min-width: 210px; max-width: min(270px, 90vw);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 5px; animation: modalIn .14s var(--ease-spring);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 10px; border: 0; background: none; border-radius: 6px;
+  cursor: pointer; font-size: 13px; text-align: left; color: var(--text);
+}
+.menu-item:hover:not(:disabled) { background: var(--surface-2); }
+.menu-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.menu-item:disabled { opacity: .45; cursor: not-allowed; }
+.menu-item.danger { color: var(--danger); }
+.menu-item.danger:hover:not(:disabled) { background: var(--danger-light); }
+.menu-item .mi-ico { width: 16px; text-align: center; flex: none; }
+.menu-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+
+/* ======================================================================
+   Adaptation à l'écran : grand écran, portable 1366×768, tablette, mobile
+   ----------------------------------------------------------------------
+   Principes : le menu latéral devient un tiroir sous 1024 px ; les grilles
+   se replient en une colonne ; les tableaux défilent horizontalement plutôt
+   que d'écraser leurs colonnes ; les colonnes secondaires se masquent
+   (.hide-md sous 1100 px, .hide-sm sous 720 px).
+   ====================================================================== */
+.nav-toggle { display: none; }
+.sidebar-overlay { display: none; }
+
+@media (max-width: 1100px) {
+  .hide-md { display: none; }
+}
+
+@media (max-width: 1024px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; z-index: 120; left: 0; top: 0; bottom: 0;
+    width: var(--sidebar-w); height: 100dvh;
+    transform: translateX(-105%);
+    transition: transform .2s var(--ease-out);
+  }
+  .sidebar.open { transform: none; box-shadow: var(--shadow-lg); }
+  .sidebar-overlay {
+    display: block; position: fixed; inset: 0; z-index: 110;
+    background: rgba(15, 23, 42, .4); border: 0; padding: 0; cursor: pointer;
+  }
+  .nav-toggle { display: inline-flex; }
+  .card-head { flex-wrap: wrap; }
+  .grid.c2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  /* Défilement horizontal plutôt que colonnes écrasées. Le menu ⋮ étant
+     rendu dans un portail fixe, ce conteneur scrollable ne le rogne pas. */
+  .card-body.tight { overflow-x: auto; }
+  .card-body.tight > table { min-width: 600px; }
+  .modal-body { overflow-x: auto; }
+}
+
+@media (max-width: 720px) {
+  .grid.c2, .grid.c3, .grid.c4, .grid.c5 { grid-template-columns: minmax(0, 1fr); }
+  .queue { grid-template-columns: minmax(0, 1fr); }
+  .content { padding: 12px; }
+  .topbar { padding: 10px 12px; gap: 10px; }
+  .topbar h2 { font-size: 16px; }
+  .user-chip .uinfo { display: none; }
+  .btn-new kbd { display: none; }
+  .hide-sm { display: none; }
+  .search-global { flex: 1 1 100%; width: auto !important; margin-left: 0 !important; }
+  .card-head .btn, .card-head select { flex: none; }
+  .page-head .ph-actions { width: 100%; }
+  .page-head .ph-actions .btn { flex: 1 1 auto; }
+  .modal { max-height: calc(100dvh - 40px); }
+  .overlay { padding: 20px 12px; align-items: center; }
+  .drawer { width: 100vw; }
+  .login-card { padding: 24px 20px; }
+  .toast-wrap { left: 12px; right: 12px; }
+  .toast { max-width: none; }
+  .dl { grid-template-columns: 110px 1fr; }
+}

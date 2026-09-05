@@ -1,139 +1,44 @@
 #!/usr/bin/env node
 /**
  * Contrôleur du serveur PostgreSQL local embarqué.
- * Aucune installation système requise : le binaire PostgreSQL est fourni avec
- * l'application, ce qui garantit un déploiement on-premise totalement autonome.
  *
  *   node scripts/db.mjs start | stop | status | reset
- */
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-/**
- * Le paquet PostgreSQL embarqué est spécifique à la plateforme : npm n'installe
- * que celui qui correspond à la machine. On le résout dynamiquement pour que le
- * même dépôt fonctionne sous Linux, macOS (Intel et Apple Silicon) et Windows.
- */
-function resolvePgBin() {
-  const platform = { linux: 'linux', darwin: 'darwin', win32: 'windows' }[process.platform];
-  const arch = { x64: 'x64', arm64: 'arm64', ia32: 'ia32' }[process.arch];
-  if (!platform || !arch) {
-    console.error(`Plateforme non prise en charge : ${process.platform}/${process.arch}`);
-    process.exit(1);
-  }
-  const dir = resolve(ROOT, `node_modules/@embedded-postgres/${platform}-${arch}/native/bin`);
-  if (!existsSync(dir)) {
-    console.error(
-      `PostgreSQL embarqué introuvable pour ${platform}-${arch}.\n` +
-      `Dossier attendu : ${dir}\n` +
-      'Lancez « npm install » à la racine du projet, puis réessayez.');
-    process.exit(1);
-  }
-  return dir;
-}
-
-const EXE = process.platform === 'win32' ? '.exe' : '';
-const BIN = resolvePgBin();
-const DATA = process.env.PGDATA || resolve(ROOT, '.pgdata');
-const PORT = process.env.PGPORT || '55432';
-const USER = process.env.PGUSER || 'clinirdv';
-const PASSWORD = process.env.PGPASSWORD || 'clinirdv';
-const DB = process.env.PGDATABASE || 'clinirdv';
-const LOG = resolve(ROOT, '.pgdata.log');
-
-/**
- * Exécute un utilitaire PostgreSQL.
  *
- * `detach: true` est indispensable pour « pg_ctl start » : le serveur lancé
- * hérite des tubes d'entrée/sortie du processus parent et ne les referme
- * jamais. Sous Windows, spawnSync attendrait donc indéfiniment la fin d'un flux
- * qui reste ouvert tant que PostgreSQL tourne. On coupe les tubes (`ignore`) :
- * la sortie du serveur part déjà dans le fichier journal passé via « -l ».
+ * Aucune installation système requise : le binaire PostgreSQL est fourni
+ * avec l'application, ce qui garantit un déploiement on-premise totalement
+ * autonome. La mécanique (initdb, pg_ctl, base applicative) vit dans
+ * apps/api/src/core/pgserver.mjs, partagé avec l'exécutable distribué
+ * (--db-start, --db-stop, --db-status, --setup) : une seule implémentation,
+ * deux mondes.
  */
-function run(cmd, args, { detach = false, ...opts } = {}) {
-  const r = spawnSync(resolve(BIN, cmd + EXE), args, {
-    encoding: 'utf8',
-    windowsHide: true,
-    ...(detach ? { stdio: 'ignore' } : {}),
-    ...opts,
-  });
-  if (r.error) throw r.error;
-  return r;
-}
+import { loadEnvFile } from '../apps/api/src/core/env.mjs';
+import { pgStart, pgStop, pgReset, pgStatus } from '../apps/api/src/core/pgserver.mjs';
 
-function isRunning() {
-  return run('pg_ctl', ['-D', DATA, 'status']).status === 0;
-}
-
-function initCluster() {
-  if (existsSync(DATA)) return;
-  console.log('• Initialisation du cluster PostgreSQL local…');
-  mkdirSync(DATA, { recursive: true });
-  const pwFile = resolve(ROOT, '.pgpass.tmp');
-  writeFileSync(pwFile, PASSWORD, { mode: 0o600 });
-  const r = run('initdb', [
-    '-D', DATA, '-U', USER, '--pwfile', pwFile,
-    '--encoding=UTF8', '--locale=C', '-A', 'scram-sha-256',
-  ]);
-  rmSync(pwFile, { force: true });
-  if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
-  // Écoute uniquement en local (contrainte on-premise : jamais exposé au réseau public)
-  writeFileSync(resolve(DATA, 'postgresql.auto.conf'),
-    `listen_addresses = '127.0.0.1'\nport = ${PORT}\nfsync = on\n`);
-}
-
-async function start() {
-  initCluster();
-  if (!isRunning()) {
-    console.log(`• Démarrage de PostgreSQL sur 127.0.0.1:${PORT}…`);
-    const r = run('pg_ctl', ['-D', DATA, '-l', LOG, '-w', '-o', `-p ${PORT}`, 'start'],
-      { detach: true });
-    if (r.status !== 0) {
-      console.error(`Échec du démarrage de PostgreSQL (code ${r.status}).`);
-      console.error(`Consultez le journal : ${LOG}`);
-      process.exit(1);
-    }
-  }
-  await ensureDatabase();
-  console.log('✓ PostgreSQL prêt.');
-}
-
-async function ensureDatabase() {
-  const { default: pg } = await import('pg');
-  const client = new pg.Client({
-    host: '127.0.0.1', port: Number(PORT), user: USER,
-    password: PASSWORD, database: 'postgres',
-  });
-  await client.connect();
-  const { rows } = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [DB]);
-  if (!rows.length) {
-    await client.query(`CREATE DATABASE ${DB}`);
-    console.log(`• Base « ${DB} » créée.`);
-  }
-  await client.end();
-}
-
-function stop() {
-  if (!existsSync(DATA) || !isRunning()) { console.log('• PostgreSQL est déjà arrêté.'); return; }
-  run('pg_ctl', ['-D', DATA, '-w', '-m', 'fast', 'stop'], { stdio: 'inherit' });
-  console.log('✓ PostgreSQL arrêté.');
-}
-
-async function reset() {
-  stop();
-  rmSync(DATA, { recursive: true, force: true });
-  rmSync(LOG, { force: true });
-  console.log('✓ Cluster supprimé.');
-  await start();
-}
+// Le .env avant toute lecture : même règle que pour l'exécutable.
+loadEnvFile();
 
 const cmd = process.argv[2] || 'start';
-if (cmd === 'start') await start();
-else if (cmd === 'stop') stop();
-else if (cmd === 'reset') await reset();
-else if (cmd === 'status') console.log(isRunning() ? 'running' : 'stopped');
-else { console.error('Usage: db.mjs start|stop|status|reset'); process.exit(1); }
+
+try {
+  if (cmd === 'start') {
+    const before = pgStatus();
+    if (before === 'stopped') console.log('• Démarrage de PostgreSQL…');
+    await pgStart();
+    console.log('✓ PostgreSQL prêt.');
+  } else if (cmd === 'stop') {
+    pgStop() ? console.log('✓ PostgreSQL arrêté.')
+             : console.log('• PostgreSQL est déjà arrêté.');
+  } else if (cmd === 'reset') {
+    console.log('• Suppression du cluster…');
+    await pgReset();
+    console.log('✓ Cluster recréé.');
+  } else if (cmd === 'status') {
+    console.log(pgStatus() === 'running' ? 'running' : 'stopped');
+  } else {
+    console.error('Usage: db.mjs start|stop|status|reset');
+    process.exit(1);
+  }
+} catch (e) {
+  console.error(`Échec : ${e.message}`);
+  process.exit(1);
+}

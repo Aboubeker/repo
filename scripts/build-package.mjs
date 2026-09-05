@@ -2,7 +2,12 @@
 /**
  * Fabrique le paquet d'installation distribuable.
  *
- *   node scripts/build-package.mjs
+ *   node scripts/build-package.mjs [--node-host <chemin>]
+ *
+ * --node-host : binaire Node à transformer en exécutable distribué
+ * (défaut : le Node local). C'est ce qui permet la fabrication croisée —
+ * le blob SEA est généré par le Node local (portable entre plateformes,
+ * même version majeure), seul le binaire d'hôte change.
  *
  * Produit dans « release/ » un dossier autonome contenant :
  *   - CliniRDV.exe        serveur applicatif compilé (code source non lisible)
@@ -22,11 +27,21 @@ import { existsSync, mkdirSync, rmSync, cpSync, writeFileSync, readFileSync,
          readdirSync, statSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hasSignature, stripSignature } from './lib/pe.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(ROOT, 'release');
 const isWin = process.platform === 'win32';
-const EXE = isWin ? 'CliniRDV.exe' : 'CliniRDV';
+
+const args = process.argv.slice(2);
+const flag = (name, def = null) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : def;
+};
+const NODE_HOST = flag('--node-host') || process.execPath;
+// Le nom de l'exécutable suit la PLATEFORME CIBLE (l'hôte), pas celle du
+// script : une fabrication croisée Linux → Windows produit bien « .exe ».
+const EXE = NODE_HOST.toLowerCase().endsWith('.exe') ? 'CliniRDV.exe' : 'CliniRDV';
 
 const step = (m) => console.log(`\n\u25b8 ${m}`);
 const ok = (m) => console.log(`  \u2713 ${m}`);
@@ -97,15 +112,19 @@ writeFileSync(seaConfig, JSON.stringify({
 run(process.execPath, ['--experimental-sea-config', seaConfig]);
 
 const exePath = resolve(OUT, EXE);
-cpSync(process.execPath, exePath);
+cpSync(NODE_HOST, exePath);
 
 // La signature Authenticode doit sauter avant l'injection, sinon le binaire
-// est considere comme altere et Windows refuse de l'executer.
-if (isWin) {
-  try {
-    run('signtool', ['remove', '/s', exePath], { stdio: 'ignore' });
-    ok('Signature d\'origine retiree');
-  } catch { /* signtool absent : l'injection fonctionne quand meme */ }
+// est considere comme altere et Windows refuse de l'executer. Ce n'est pas
+// le privilege de signtool (Windows) : l'effacement est fait ici, maison,
+// pour tout binaire, sur toute plateforme de fabrication.
+{
+  const r = stripSignature(readFileSync(exePath));
+  if (r.changed) {
+    writeFileSync(exePath, r.buffer);
+    ok(`Signature d'origine effacée (${r.removedBytes} octets retirés) : sans cela ` +
+       `Windows refuserait le binaire modifié`);
+  }
 }
 
 const postject = resolve(ROOT, 'node_modules/.bin/postject' + (isWin ? '.cmd' : ''));

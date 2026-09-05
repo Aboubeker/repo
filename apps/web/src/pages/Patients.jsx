@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Spinner, Empty, Modal, Field, ErrorAlert, ConfirmDialog, fmtName, fmtMoney,
+import { Spinner, Empty, Modal, Field, ErrorAlert, ConfirmDialog, RowActions, fmtName, fmtMoney,
          age, can, useToast } from '../lib.jsx';
 
 export default function Clients({ user, go }) {
@@ -94,7 +94,7 @@ export default function Clients({ user, go }) {
               <thead>
                 <tr>
                   <th>Identifiant</th><th>Nom, prénom</th><th>Naissance</th>
-                  <th>Téléphone</th><th>Dernière visite</th><th>Prochain RDV</th>
+                  <th>Téléphone</th><th className="hide-md">Dernière visite</th><th className="hide-md">Prochain RDV</th>
                   <th className="num">Solde</th><th></th><th className="num">Actions</th>
                 </tr>
               </thead>
@@ -106,9 +106,9 @@ export default function Clients({ user, go }) {
                     <td>{new Date(p.birth_date).toLocaleDateString('fr-FR')}
                       <span className="muted small"> ({age(p.birth_date)} ans)</span></td>
                     <td className="muted">{p.phone_mobile || '—'}</td>
-                    <td className="muted small">
+                    <td className="muted small hide-md">
                       {p.last_visit_at ? new Date(p.last_visit_at).toLocaleDateString('fr-FR') : '—'}</td>
-                    <td className="small">
+                    <td className="small hide-md">
                       {p.next_visit_at
                         ? <span className="badge blue">
                             {new Date(p.next_visit_at).toLocaleDateString('fr-FR')}</span>
@@ -127,20 +127,25 @@ export default function Clients({ user, go }) {
                     </td>
                     {/* onClick={stop} : sans cela, un clic sur « Modifier »
                         déclencherait aussi la navigation portée par la ligne. */}
-                    <td className="num nowrap" onClick={(e) => e.stopPropagation()}>
-                      {writable && status === 'ACTIVE' && (
-                        <>
-                          <button className="btn sm" onClick={() => setEditing(p)}
-                                  title="Modifier l'identité et les coordonnées">Modifier</button>
-                          {' '}
-                          <button className="btn sm danger" onClick={() => setArchiving(p)}
-                                  title="Retirer la fiche des listes actives">Archiver</button>
-                        </>
-                      )}
-                      {writable && status === 'ARCHIVED' && (
-                        <button className="btn sm" onClick={() => restore(p)}
-                                title="Remettre la fiche parmi les clients actifs">
-                          Réactiver</button>
+                    <td className="num actions-cell" onClick={(e) => e.stopPropagation()}>
+                      {writable && (
+                        <RowActions label={`Actions pour ${p.mrn}`} items={
+                          status === 'ACTIVE' ? [
+                            { icon: '✎', label: 'Modifier',
+                              title: "Modifier l'identité et les coordonnées",
+                              onSelect: () => setEditing(p) },
+                            { icon: '📁', label: 'Ouvrir le dossier',
+                              onSelect: () => go('patient', p.id) },
+                            { sep: true },
+                            { icon: '🗑', label: 'Archiver', danger: true,
+                              title: 'Retirer la fiche des listes actives',
+                              onSelect: () => setArchiving(p) },
+                          ] : [
+                            { icon: '▶', label: 'Réactiver',
+                              title: 'Remettre la fiche parmi les clients actifs',
+                              onSelect: () => restore(p) },
+                          ]
+                        } />
                       )}
                     </td>
                   </tr>

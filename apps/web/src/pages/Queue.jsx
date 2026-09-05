@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../api.js';
-import { Spinner, ErrorAlert, fmtTime, fmtName, can, useToast, toISODate } from '../lib.jsx';
+import { Spinner, ErrorAlert, RowActions, fmtTime, fmtName, can, useToast, toISODate } from '../lib.jsx';
 import { AppointmentDetail } from './Calendar.jsx';
 
 const COLUMNS = [
@@ -119,13 +119,17 @@ export default function Queue({ user, go }) {
                           <button className="btn primary sm" disabled={busyId === a.id}
                                   onClick={() => advance(a, col.next[0])}>{col.next[1]}</button>
                         )}
-                        {can(user, 'appointment.write') && col.key === 'expected' && late && (
-                          <button className="btn sm" disabled={busyId === a.id}
-                                  onClick={() => noShow(a)}>Absent</button>
-                        )}
-                        <button className="btn ghost sm" onClick={() => setDetailId(a.id)}>Détail</button>
-                        <button className="btn ghost sm"
-                                onClick={() => go('patient', a.patient_id)}>Dossier</button>
+                        <RowActions label="Autres actions" align="left" items={[
+                          ...(can(user, 'appointment.write') && col.key === 'expected' && late
+                            ? [{ icon: '✗', label: 'Marquer absent',
+                                 disabled: busyId === a.id,
+                                 onSelect: () => noShow(a) }]
+                            : []),
+                          { icon: '📄', label: 'Détail du rendez-vous',
+                            onSelect: () => setDetailId(a.id) },
+                          { icon: '📁', label: 'Ouvrir le dossier client',
+                            onSelect: () => go('patient', a.patient_id) },
+                        ]} />
                       </div>
                     </div>
                   );

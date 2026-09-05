@@ -1,5 +1,6 @@
 /** Utilitaires partagés : formatage, statuts, composants d'interface communs. */
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 /* ------------------------------ Formatage ------------------------------ */
 export const fmtDate = (d) => d ? new Date(d).toLocaleDateString('fr-DZ') : '—';
@@ -341,6 +342,97 @@ export function ConfirmDialog({ title, message, confirmLabel = 'Confirmer',
       <p style={{ marginBottom: children ? 12 : 0 }}>{message}</p>
       {children}
     </Modal>
+  );
+}
+
+/* ======================================================================
+   Menu d'actions compact (« ⋮ »)
+   ====================================================================== */
+
+/**
+ * Un seul bouton par ligne de tableau, au lieu de trois ou quatre.
+ *
+ * Les colonnes « Actions » portaient jusqu'à quatre boutons (Modifier,
+ * Désactiver, Réinitialiser, Supprimer) : sur un écran 1366×768, elles
+ * occupaient à elles seules le tiers du tableau des utilisateurs. Le menu
+ * rend la colonne à son rôle — un repère cliquable — et liste les gestes
+ * au clic, les destructeurs en rouge après un séparateur.
+ *
+ * Le menu est rendu dans un portail en `position: fixed` : un tableau en
+ * défilement horizontal ne le rogne jamais. Il se referme au clic
+ * extérieur, à la touche Échap et après chaque choix ; il bascule
+ * au-dessus du bouton quand le bas de l'écran est proche.
+ *
+ * Éléments : { icon, label, title, danger, disabled, onSelect } ou { sep: true }.
+ */
+export function RowActions({ label = 'Actions', items = [], align = 'right' }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+
+  // Position initiale sous le bouton, affinée après mesure (voir effet).
+  const toggle = (e) => {
+    e.stopPropagation();
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: align === 'right' ? r.right - 220 : r.left });
+    }
+    setOpen((v) => !v);
+  };
+
+  // Recalage sur la taille réelle : bascule au-dessus si le bas de l'écran
+  // est proche, et rappel dans la fenêtre sur les petits écrans.
+  useEffect(() => {
+    if (!open || !menuRef.current || !btnRef.current) return undefined;
+    const r = btnRef.current.getBoundingClientRect();
+    const m = menuRef.current.getBoundingClientRect();
+    let top = r.bottom + 4;
+    if (top + m.height > window.innerHeight - 8) {
+      top = Math.max(8, r.top - m.height - 4);
+    }
+    let left = align === 'right' ? r.right - m.width : r.left;
+    left = Math.min(Math.max(8, left), Math.max(8, window.innerWidth - m.width - 8));
+    setPos({ top, left });
+    const onDown = (e) => {
+      if (menuRef.current?.contains(e.target) || btnRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); }
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, align]);
+
+  return (
+    <>
+      <button ref={btnRef} type="button" className="btn ghost sm menu-btn"
+              aria-haspopup="menu" aria-expanded={open} aria-label={label} title={label}
+              onClick={toggle}>⋮</button>
+      {open && createPortal(
+        <div ref={menuRef} className="menu" role="menu" aria-label={label}
+             style={{ top: pos.top, left: pos.left }}
+             onClick={(e) => e.stopPropagation()}>
+          {items.map((it, i) => it.sep
+            ? <div key={`sep-${i}`} className="menu-sep" role="separator" />
+            : (
+              <button key={it.key || `it-${i}`} type="button" role="menuitem"
+                      className={`menu-item${it.danger ? ' danger' : ''}`}
+                      disabled={it.disabled} title={it.title}
+                      onClick={() => { setOpen(false); it.onSelect?.(); }}>
+                {it.icon && <span className="mi-ico" aria-hidden="true">{it.icon}</span>}
+                <span>{it.label}</span>
+              </button>
+            ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

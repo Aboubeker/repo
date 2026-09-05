@@ -9,6 +9,9 @@ import {pathToFileURL} from 'node:url';
 
 import { Router, createHandler } from './core/http.mjs';
 import { healthcheck, closePool, query } from './core/db.mjs';
+import { runMigrations } from './db/migrate.mjs';
+import { runInstall } from './db/install.mjs';
+import { pgStart, pgStop, pgStatus } from './core/pgserver.mjs';
 import { registerAuthRoutes } from './modules/auth.routes.mjs';
 import { registerPatientRoutes } from './modules/patients.routes.mjs';
 import { registerPractitionerRoutes } from './modules/practitioners.routes.mjs';
@@ -183,29 +186,86 @@ if (!isMain && !isPackaged && process.argv[1] && /main\.mjs$/.test(process.argv[
   console.error('    Signalez ces deux lignes : il s\'agit d\'un problème de portabilité.\n');
   process.exit(1);
 }
-/*
- * Mode « installation » de l'exécutable distribué.
+/* ------------------------------------------------------------------ CLI --
+ * Les commandes de l'exécutable sont dépêchées AVANT tout démarrage du
+ * serveur HTTP.
  *
- * Le paquet ne contient ni npm ni les scripts du dépôt : l'installateur doit
- * pouvoir préparer la base en appelant le binaire lui-même.
+ * Défaut corrigé : « --migrate » lançait le serveur en même temps que la
+ * migration — la tâche asynchrone était démarrée puis le code continuait
+ * jusqu'à « server.listen ». La migration ne s'achevait que parce que
+ * process.exit() coupait tout, et un port occupé la faisait échouer.
+ *
+ * Le paquet distribué ne contient ni npm ni les scripts du dépôt : c'est le
+ * binaire lui-même qui sait préparer la base, piloter PostgreSQL et
+ * s'installer (« --setup »).
  */
-if (isMain && process.argv.includes('--migrate')) {
-  // Encapsulé dans une fonction : le format CommonJS produit pour
-  // l'exécutable n'accepte pas d'await au niveau racine du module.
-  (async () => {
-    try {
-      const { runMigrations } = await import('./db/migrate.mjs');
-      await runMigrations();
-      console.log('\n  ✓ Base de données prête.\n');
-      process.exit(0);
-    } catch (e) {
-      console.error(`\n  ✗ Préparation de la base impossible : ${e.message}\n`);
-      process.exit(1);
-    }
-  })();
+const CLI_COMMANDS = ['--migrate', '--setup', '--db-start', '--db-stop',
+                      '--db-status', '--version'];
+
+export function detectCliCommand(argv) {
+  return argv.find((a) => CLI_COMMANDS.includes(a)) || null;
 }
 
+function appVersion() {
+  // Le build installe la version par esbuild --define ; en développement on
+  // lit package.json.
+  if (process.env.CLINIRDV_APP_VERSION) return process.env.CLINIRDV_APP_VERSION;
+  try {
+    return JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version;
+  } catch {
+    return 'inconnue';
+  }
+}
+
+async function runCliCommand(cmd) {
+  switch (cmd) {
+    case '--version':
+      console.log(`CliniRDV ${appVersion()}`);
+      break;
+    case '--migrate':
+      await runMigrations();
+      console.log('\n  ✓ Base de données prête.\n');
+      break;
+    case '--setup':
+      await runInstall();
+      console.log('\n  ✓ Installation de la base terminée.\n');
+      break;
+    case '--db-start':
+      await pgStart();
+      console.log('✓ PostgreSQL démarré.');
+      break;
+    case '--db-stop':
+      pgStop();
+      console.log('✓ PostgreSQL arrêté.');
+      break;
+    case '--db-status':
+      console.log(pgStatus() === 'running' ? 'running' : 'stopped');
+      break;
+  }
+}
+
+// La commande détectée est mémorisée avant de lancer le travail asynchrone :
+// le bloc serveur plus bas ne s'exécute que si cette valeur est restée null.
+// (Pas d'await au niveau racine : le format CommonJS de l'exécutable
+// l'interdit, et un « return » racine ne serait pas portable non plus.)
+let cliCommand = null;
 if (isMain) {
+  cliCommand = detectCliCommand(process.argv.slice(2));
+  if (cliCommand) {
+    (async () => {
+      let code = 0;
+      try {
+        await runCliCommand(cliCommand);
+      } catch (e) {
+        console.error(`\n  ✗ ${e.message}\n`);
+        code = 1;
+      }
+      process.exit(code);
+    })();
+  }
+}
+
+if (isMain && cliCommand === null) {
   const server = createServer();
 
   // Un échec d'écoute doit être explicite : sans cela le processus s'arrête en

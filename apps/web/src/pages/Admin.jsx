@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Spinner, Empty, Modal, Field, ErrorAlert, Stat, PageHead,
-         HealthItem, ActionStrip, ConfirmDialog,
+         HealthItem, ActionStrip, ConfirmDialog, RowActions,
          fmtDate, fmtDateTime, fmtMoney, can, useToast, applyTheme } from '../lib.jsx';
 
 const TABS = [
@@ -105,8 +105,8 @@ function Users() {
         <div className="card-body tight">
           {shown.length === 0 ? <Empty icon="👤" text="Aucun compte ne correspond." /> : (
           <table>
-            <thead><tr><th>Identifiant</th><th>Nom</th><th>Rôles</th><th>Courriel</th>
-              <th>Dernière connexion</th><th>État</th><th className="num">Actions</th></tr></thead>
+            <thead><tr><th>Identifiant</th><th>Nom</th><th>Rôles</th><th className="hide-md">Courriel</th>
+              <th className="hide-md">Dernière connexion</th><th>État</th><th className="num">Actions</th></tr></thead>
             <tbody>
               {shown.map((u) => (
                 <tr key={u.id}>
@@ -117,8 +117,8 @@ function Users() {
                   <td>{u.full_name}</td>
                   <td>{(u.roles || []).map((r) => (
                     <span key={r} className="badge blue" style={{ marginRight: 4 }}>{r}</span>))}</td>
-                  <td className="muted small">{u.email || '—'}</td>
-                  <td className="muted small">
+                  <td className="muted small hide-md">{u.email || '—'}</td>
+                  <td className="muted small hide-md">
                     {u.last_login_at ? fmtDateTime(u.last_login_at) : 'jamais'}</td>
                   <td>
                     {u.status === 'ACTIVE' ? <span className="badge green">Actif</span>
@@ -127,18 +127,24 @@ function Users() {
                     {u.must_change_password &&
                       <span className="badge orange" style={{ marginLeft: 4 }}>MDP à changer</span>}
                   </td>
-                  <td className="num nowrap">
-                    <button className="btn sm" onClick={() => setForm({ user: u })}
-                            title="Nom, courriel et rôles">Modifier</button>
-                    {u.status !== 'ACTIVE'
-                      ? <button className="btn ghost sm"
-                          onClick={() => setStatus(u, 'ACTIVE', 'Compte réactivé.')}>Réactiver</button>
-                      : <button className="btn ghost sm"
-                          onClick={() => setStatus(u, 'DISABLED', 'Compte désactivé.')}>Désactiver</button>}
-                    <button className="btn ghost sm"
-                            onClick={() => resetPassword(u)}>Réinitialiser</button>
-                    <button className="btn ghost sm danger" onClick={() => setDeleting(u)}
-                            title="Supprimer le compte">Supprimer</button>
+                  <td className="num actions-cell">
+                    <RowActions label={`Actions pour ${u.username}`} items={[
+                      { icon: '✎', label: 'Modifier',
+                        title: 'Nom, courriel et rôles',
+                        onSelect: () => setForm({ user: u }) },
+                      u.status !== 'ACTIVE'
+                        ? { icon: '▶', label: 'Réactiver',
+                            onSelect: () => setStatus(u, 'ACTIVE', 'Compte réactivé.') }
+                        : { icon: '⏸', label: 'Désactiver',
+                            onSelect: () => setStatus(u, 'DISABLED', 'Compte désactivé.') },
+                      { icon: '🔑', label: 'Réinitialiser le mot de passe',
+                        title: 'Nouveau mot de passe provisoire, sessions révoquées',
+                        onSelect: () => resetPassword(u) },
+                      { sep: true },
+                      { icon: '🗑', label: 'Supprimer', danger: true,
+                        title: 'Supprimer le compte',
+                        onSelect: () => setDeleting(u) },
+                    ]} />
                   </td>
                 </tr>
               ))}
@@ -322,13 +328,16 @@ function Roles() {
                     {r.description && <div className="muted small">{r.description}</div>}</td>
                   <td className="num">{r.user_count}</td>
                   <td className="muted small">{(r.permissions || []).length} permission(s)</td>
-                  <td className="num nowrap">
-                    <button className="btn sm" onClick={() => setForm({ role: r })}>
-                      {r.is_system ? 'Ajuster' : 'Modifier'}</button>
-                    {!r.is_system && (
-                      <button className="btn ghost sm danger" onClick={() => setDeleting(r)}>
-                        Supprimer</button>
-                    )}
+                  <td className="num actions-cell">
+                    <RowActions label={`Actions pour le rôle ${r.code}`} items={[
+                      { icon: '✎', label: r.is_system ? 'Ajuster les permissions' : 'Modifier',
+                        onSelect: () => setForm({ role: r }) },
+                      ...(!r.is_system ? [
+                        { sep: true },
+                        { icon: '🗑', label: 'Supprimer', danger: true,
+                          onSelect: () => setDeleting(r) },
+                      ] : []),
+                    ]} />
                   </td>
                 </tr>
               ))}
@@ -851,19 +860,20 @@ function Catalogue() {
                         : <span className="badge orange">aucun tarif</span>}
                     </td>
                     <td className="num muted small">{t.appointment_count}</td>
-                    <td className="num nowrap">
-                      {t.is_active ? (
-                        <>
-                          <button className="btn sm" onClick={() => setTypeForm({ row: t })}>
-                            Modifier</button>
-                          <button className="btn ghost sm danger"
-                                  onClick={() => setArchiving({ kind: 'type', row: t })}>
-                            Retirer</button>
-                        </>
-                      ) : (
-                        <button className="btn sm" onClick={() => restore('type', t)}>
-                          Réactiver</button>
-                      )}
+                    <td className="num actions-cell">
+                      <RowActions label={`Actions pour ${t.label}`} items={
+                        t.is_active ? [
+                          { icon: '✎', label: 'Modifier',
+                            onSelect: () => setTypeForm({ row: t }) },
+                          { sep: true },
+                          { icon: '🗑', label: 'Retirer du catalogue', danger: true,
+                            title: "N'apparaîtra plus lors de la saisie",
+                            onSelect: () => setArchiving({ kind: 'type', row: t }) },
+                        ] : [
+                          { icon: '▶', label: 'Réactiver',
+                            onSelect: () => restore('type', t) },
+                        ]
+                      } />
                     </td>
                   </tr>
                 ))}
@@ -903,19 +913,19 @@ function Catalogue() {
                       {t.used_by_lines > 0 &&
                         <div>{t.used_by_lines} ligne(s) de facture</div>}
                     </td>
-                    <td className="num nowrap">
-                      {t.is_active ? (
-                        <>
-                          <button className="btn sm" onClick={() => setTariffForm({ row: t })}>
-                            Modifier</button>
-                          <button className="btn ghost sm danger"
-                                  onClick={() => setArchiving({ kind: 'tariff', row: t })}>
-                            Retirer</button>
-                        </>
-                      ) : (
-                        <button className="btn sm" onClick={() => restore('tariff', t)}>
-                          Réactiver</button>
-                      )}
+                    <td className="num actions-cell">
+                      <RowActions label={`Actions pour le tarif ${t.code}`} items={
+                        t.is_active ? [
+                          { icon: '✎', label: 'Modifier',
+                            onSelect: () => setTariffForm({ row: t }) },
+                          { sep: true },
+                          { icon: '🗑', label: 'Retirer du catalogue', danger: true,
+                            onSelect: () => setArchiving({ kind: 'tariff', row: t }) },
+                        ] : [
+                          { icon: '▶', label: 'Réactiver',
+                            onSelect: () => restore('tariff', t) },
+                        ]
+                      } />
                     </td>
                   </tr>
                 ))}

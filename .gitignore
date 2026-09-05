@@ -10,3 +10,5 @@ storage/
 # Paquet d'installation genere par scripts/build-package.mjs
 release/
 *.zip
+# Produits intermediaires de scripts/build-installer.mjs
+.build-installer/

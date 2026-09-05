@@ -15,7 +15,10 @@ export default function Calendar({ user, go, onNewAppt }) {
   // ne rien faire est inoffensif.
   onNewAppt = onNewAppt || (() => {});
   go = go || (() => {});
-  const [view, setView] = useState('week');
+  // Sur téléphone, la vue semaine (7 colonnes) est illisible : on part de la
+  // vue jour, l'utilisateur peut toujours basculer.
+  const [view, setView] = useState(() => (
+    typeof window !== 'undefined' && window.innerWidth < 760 ? 'day' : 'week'));
   const [anchor, setAnchor] = useState(() => new Date());
   const [practitioners, setPractitioners] = useState([]);
   const [selectedPract, setSelectedPract] = useState([]);

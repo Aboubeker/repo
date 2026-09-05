@@ -90,11 +90,18 @@ describe('Portabilité Windows / Linux / macOS', () => {
     assert.match(src, /process\.platform/,
       'la plateforme doit être détectée à l\'exécution');
 
+    // La mécanique vit dans core/pgserver.mjs, partagé entre scripts/db.mjs
+    // (dépôt) et l'exécutable distribué (--db-start, --setup, …) : c'est
+    // lui qui doit résoudre la plateforme et le suffixe .exe.
+    const pgSrc = readFileSync(resolve(ROOT, 'apps/api/src/core/pgserver.mjs'), 'utf8');
+    assert.doesNotMatch(pgSrc, /'node_modules\@embedded-postgres\/linux-x64/,
+      'pgserver.mjs ne doit pas figer linux-x64');
+    assert.match(pgSrc, /win32.*\.exe|\.exe.*win32/s,
+      'pgserver.mjs doit ajouter le suffixe .exe sous Windows');
+
     const dbSrc = readFileSync(resolve(ROOT, 'scripts/db.mjs'), 'utf8');
-    assert.doesNotMatch(dbSrc, /'node_modules\/@embedded-postgres\/linux-x64/,
-      'db.mjs ne doit pas figer linux-x64');
-    assert.match(dbSrc, /win32.*\.exe|\.exe.*win32/s,
-      'db.mjs doit ajouter le suffixe .exe sous Windows');
+    assert.match(dbSrc, /core\/pgserver\.mjs/,
+      'db.mjs doit déléguer à pgserver.mjs : une seule mécanique pour les deux mondes');
   });
 
   test('le paquet PostgreSQL de cette plateforme est bien installé', () => {
@@ -606,6 +613,76 @@ describe('Panneau de controle — demarrage et lisibilite', () => {
       'les symboles decoratifs s\'afficheraient en carres vides');
     assert.match(src, /Write-Log[\s\S]{0,120}Format-LogLine/,
       'Write-Log doit appliquer la conversion');
+  });
+
+  test('le bouton Demarrer n\'ouvre qu\'une seule fenetre navigateur', () => {
+    // « npm run app » ouvrait le navigateur de lui-meme, puis le panneau en
+    // ouvrait un second a la reponse du serveur : deux fenetres a chaque
+    // demarrage. Le panneau demande desormais --no-open et reste le seul a
+    // ouvrir, quand le serveur repond vraiment.
+    const src = panel();
+    assert.match(src, /--no-open/,
+      'le panneau doit neutraliser l\'ouverture automatique de « npm run app »');
+    const app = readFileSync(resolve(ROOT, 'scripts/app.mjs'), 'utf8');
+    assert.match(app, /--no-open/, 'app.mjs doit comprendre --no-open');
+    assert.match(app, /CLINIRDV_NO_OPEN/,
+      'app.mjs doit comprendre CLINIRDV_NO_OPEN=1 (lanceurs sans argument)');
+    assert.match(app, /if \(!NO_OPEN\)/,
+      'l\'ouverture du navigateur doit etre conditionnee');
+  });
+});
+
+/*
+ * Interface web : menu d'actions et adaptation a l'ecran.
+ *
+ * Contrats de source — il n'y a pas de navigateur en integration continue,
+ * mais ces proprietes se verifient sur le texte : un composant partage
+ * unique, utilise par les tableaux concernes, et des regles responsive
+ * reelles (tiroir de navigation, defilement des tableaux, colonnes
+ * masquables). La compilation Vite reste le garde-fou syntaxique.
+ */
+describe('Interface web — actions et responsive', () => {
+  const web = (f) => readFileSync(resolve(ROOT, f), 'utf8');
+
+  test('les lignes de tableau passent par un seul menu d\'actions', () => {
+    assert.match(web('apps/web/src/lib.jsx'), /export function RowActions/,
+      'lib.jsx doit exporter le menu d\'actions partage');
+    for (const f of ['apps/web/src/pages/Admin.jsx',
+                     'apps/web/src/pages/Patients.jsx',
+                     'apps/web/src/pages/Queue.jsx']) {
+      assert.match(web(f), /<RowActions/,
+        `${f} doit utiliser le menu partage au lieu de boutons en ligne`);
+    }
+    // Le tableau des utilisateurs ne porte plus ses quatre boutons en ligne.
+    const users = web('apps/web/src/pages/Admin.jsx');
+    assert.doesNotMatch(users, />Désactiver<\/button>/,
+      'les quatre boutons en ligne des utilisateurs doivent avoir disparu');
+  });
+
+  test('le menu est rendu en portail fixe, jamais rogne', () => {
+    const lib = web('apps/web/src/lib.jsx');
+    assert.match(lib, /createPortal/,
+      'le menu doit etre porte hors de l\'arbre (tableaux scrollables)');
+    assert.match(web('apps/web/src/styles.css'), /\.menu \{[\s\S]*?position: fixed/,
+      'le menu doit etre en position fixe');
+  });
+
+  test('la navigation devient un tiroir sous 1024 px', () => {
+    const css = web('apps/web/src/styles.css');
+    assert.match(css, /@media \(max-width: 1024px\)[\s\S]*?\.sidebar\.open/,
+      'le tiroir de navigation doit exister sous 1024 px');
+    assert.match(css, /\.sidebar-overlay/,
+      'un voile doit fermer le tiroir au clic');
+    assert.match(web('apps/web/src/App.jsx'), /nav-toggle/,
+      'un bouton hamburger doit ouvrir le tiroir');
+  });
+
+  test('les tableaux defilent au lieu d\'ecraser leurs colonnes', () => {
+    const css = web('apps/web/src/styles.css');
+    assert.match(css, /\.card-body\.tight \{[\s\S]*?overflow-x: auto/,
+      'les tableaux doivent defiler horizontalement sur petit ecran');
+    assert.match(css, /\.hide-md[\s\S]*?display: none/,
+      'les colonnes secondaires doivent pouvoir se masquer');
   });
 });
 

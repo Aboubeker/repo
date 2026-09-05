@@ -4,8 +4,14 @@
  * lance le serveur applicatif et ouvre la page de connexion dans le navigateur.
  *
  *   npm run app
+ *   npm run app -- --no-open        (ou CLINIRDV_NO_OPEN=1)
  *
  * Objectif : une seule commande, une fenêtre de connexion à l'écran.
+ *
+ * L'option --no-open existe pour le panneau de contrôle Windows : celui-ci
+ * lance « npm run app » puis ouvre lui-même le navigateur quand le serveur
+ * répond. Sans elle, les deux ouvraient chacun une fenêtre — d'où la double
+ * ouverture constatée sur le bouton « Démarrer ».
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, copyFileSync, writeFileSync,
@@ -16,6 +22,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// Le panneau de contrôle ouvre déjà le navigateur après le démarrage : quand
+// c'est lui qui lance ce script, il demande --no-open pour ne pas ouvrir deux
+// fenêtres. La variable d'environnement couvre les lanceurs qui ne passent
+// pas d'argument (tâche planifiée, script maison).
+const NO_OPEN = process.argv.includes('--no-open') || process.env.CLINIRDV_NO_OPEN === '1';
 const color = process.stdout.isTTY;
 const c = (n, s) => (color ? `\x1b[${n}m${s}\x1b[0m` : s);
 const bold = (s) => c(1, s);
@@ -214,18 +225,20 @@ while (Date.now() < deadline) {
 }
 if (!up) die('Le serveur n\'a pas répondu dans le délai imparti.');
 
-const opener = { win32: ['cmd', ['/c', 'start', '', url]],
-                 darwin: ['open', [url]] }[process.platform] || ['xdg-open', [url]];
-try {
-  const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
-  // spawn émet « error » de façon asynchrone : sans ce gestionnaire, l'absence
-  // du navigateur (xdg-open sur un serveur sans bureau) ferait planter le
-  // lanceur alors que l'application, elle, fonctionne parfaitement.
-  child.on('error', () => {
-    console.log(c(90, '  (ouverture automatique du navigateur impossible — ouvrez l\'adresse ci-dessous)'));
-  });
-  child.unref();
-} catch { /* l'URL reste affichée ci-dessous */ }
+if (!NO_OPEN) {
+  const opener = { win32: ['cmd', ['/c', 'start', '', url]],
+                   darwin: ['open', [url]] }[process.platform] || ['xdg-open', [url]];
+  try {
+    const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
+    // spawn émet « error » de façon asynchrone : sans ce gestionnaire, l'absence
+    // du navigateur (xdg-open sur un serveur sans bureau) ferait planter le
+    // lanceur alors que l'application, elle, fonctionne parfaitement.
+    child.on('error', () => {
+      console.log(c(90, '  (ouverture automatique du navigateur impossible — ouvrez l\'adresse ci-dessous)'));
+    });
+    child.unref();
+  } catch { /* l'URL reste affichée ci-dessous */ }
+}
 
 console.log(`
   ${c(32, bold('CliniRDV est prêt.'))}
